@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import type { TranslationFile, TranslationHistory, TranslationGroup, AIAnalysisResult } from '../types';
 import { getValueByPath } from '../services/translationService';
 import { analyzeTranslations, buildAnalysisPrompt } from '../services/aiService';
-import { SearchIcon, PlusCircleIcon, SparklesIcon, CollectionIcon, TrashIcon, EditIcon, StarIcon, CodeBracketIcon } from './Icons';
+import { SearchIcon, PlusCircleIcon, SparklesIcon, CollectionIcon, TrashIcon, EditIcon, StarIcon, CodeBracketIcon, ChevronDownIcon, ChevronUpIcon, ClipboardIcon, CheckIcon } from './Icons';
 import { TranslationAnalysisCard } from './TranslationAnalysisCard';
 import { PromptViewerModal } from './PromptViewerModal';
 
@@ -26,13 +26,44 @@ interface GroupsViewProps {
 
 const polishFileFinder = (f: TranslationFile) => f.name.toLowerCase().includes('pl') || f.name.toLowerCase().includes('polish');
 
+// A controlled textarea component that saves on blur
+const EditableValueTextarea: React.FC<{
+    initialValue: string;
+    onSave: (newValue: string) => void;
+    fileFound: boolean;
+    lang: string;
+}> = ({ initialValue, onSave, fileFound, lang }) => {
+    const [value, setValue] = useState(initialValue);
+
+    useEffect(() => {
+        setValue(initialValue);
+    }, [initialValue]);
+
+    const handleBlur = () => {
+        if (value !== initialValue) {
+            onSave(value);
+        }
+    };
+
+    return (
+        <textarea
+            rows={2}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={handleBlur}
+            className="w-full bg-gray-900/50 border border-gray-700 rounded-md p-1 resize-y text-gray-300 focus:border-teal-500"
+            placeholder={!fileFound ? `${lang} file not found` : ""}
+            disabled={!fileFound}
+        />
+    );
+};
+
 export const GroupsView: React.FC<GroupsViewProps> = (props) => {
     const { 
         allKeys, files, contexts, groups, onUpdateGroups, 
         groupMode, selectedGroupId, onSetGroupMode, onSetSelectedGroupId,
     } = props;
     
-    // State for creating/editing a group
     const [formState, setFormState] = useState({
         name: '',
         context: '',
@@ -41,10 +72,6 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
         referenceKeys: new Set<string>(),
     });
 
-    // State for tracking inline edits in the group form textareas
-    const [inlineEdits, setInlineEdits] = useState<Record<string, { pl?: string; en?: string }>>({});
-
-    // State for viewing/analyzing a group
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisData, setAnalysisData] = useState<Record<string, {
         result: AIAnalysisResult | null;
@@ -55,6 +82,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
     const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
     const [generatedPrompt, setGeneratedPrompt] = useState('');
     const [promptModalSubtitle, setPromptModalSubtitle] = useState('');
+    const [copied, setCopied] = useState(false);
 
     const polishFile = useMemo(() => files.find(polishFileFinder), [files]);
     const englishFile = useMemo(() => files.find(f => f.name.toLowerCase().includes('en') || f.name.toLowerCase().includes('english')), [files]);
@@ -72,26 +100,22 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
                     referenceKeys: new Set(group.referenceKeys),
                 });
             }
-            setInlineEdits({});
         } else if (groupMode === 'create') {
             resetForm();
         }
     }, [groupMode, selectedGroupId, groups]);
 
     useEffect(() => {
-        // Clear analysis and collapse data when selected group changes
         setAnalysisData({});
         setIsAnalyzing(false);
         setCollapsedKeys(new Set());
     }, [selectedGroupId]);
-
 
     const resetForm = () => {
         setFormState({
             name: '', context: '', searchQuery: '',
             selectedKeys: new Set(), referenceKeys: new Set(),
         });
-        setInlineEdits({});
     };
     
     const handleCancelForm = () => {
@@ -106,19 +130,6 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
             return;
         }
 
-        // 1. Save all inline text edits made in the form
-        // FIX: Use Object.keys to iterate for better type inference than Object.entries.
-        Object.keys(inlineEdits).forEach((key) => {
-            const values = inlineEdits[key];
-            if (values.pl !== undefined && polishFile) {
-                props.onUpdateValue(polishFile.name, key, values.pl);
-            }
-            if (values.en !== undefined && englishFile) {
-                props.onUpdateValue(englishFile.name, key, values.en);
-            }
-        });
-
-        // 2. Save the group definition itself
         if (groupMode === 'create') {
             const newGroup: TranslationGroup = {
                 id: String(Date.now()),
@@ -147,20 +158,9 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
         }
     };
     
-    const handleInlineChange = (key: string, lang: 'pl' | 'en', value: string) => {
-        setInlineEdits(prev => ({
-            ...prev,
-            [key]: {
-                ...prev[key],
-                [lang]: value,
-            }
-        }));
-    };
-
     const searchResults = useMemo(() => {
         const query = formState.searchQuery.trim();
-        const baseKeys = groupMode === 'edit' ? Array.from(formState.selectedKeys) : allKeys;
-        if (!query) return groupMode === 'edit' ? baseKeys : [];
+        if (!query) return groupMode === 'edit' ? Array.from(formState.selectedKeys).sort() : [];
 
         const lowercasedQuery = query.toLowerCase();
         
@@ -185,7 +185,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
         const newReferences = new Set(formState.referenceKeys);
         if (newSelected.has(key)) {
             newSelected.delete(key);
-            newReferences.delete(key); // Also remove from references if deselected
+            newReferences.delete(key);
         } else {
             newSelected.add(key);
         }
@@ -197,12 +197,19 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
         if (newReferences.has(key)) {
             newReferences.delete(key);
         } else {
-             // A key must be selected to be a reference
             if (formState.selectedKeys.has(key)) {
                 newReferences.add(key);
             }
         }
         setFormState(s => ({ ...s, referenceKeys: newReferences }));
+    };
+    
+    const handleCopyAllKeys = (group: TranslationGroup) => {
+        const keysString = group.keys.join('\n');
+        navigator.clipboard.writeText(keysString).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
     };
 
     const handleToggleCollapse = (key: string) => {
@@ -298,7 +305,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
     };
     
     const renderGroupForm = () => {
-        const displayedKeys = formState.searchQuery ? searchResults : Array.from(formState.selectedKeys);
+        const displayedKeys = formState.searchQuery ? searchResults : Array.from(formState.selectedKeys).sort();
         
         return (
         <div className="flex flex-col h-full bg-gray-900">
@@ -327,8 +334,8 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
                     </thead>
                     <tbody className="divide-y divide-gray-700/50">
                         {displayedKeys.map(key => {
-                             const plValue = inlineEdits[key]?.pl ?? (polishFile ? String(getValueByPath(polishFile.data, key) ?? '') : '');
-                             const enValue = inlineEdits[key]?.en ?? (englishFile ? String(getValueByPath(englishFile.data, key) ?? '') : '');
+                             const plValue = polishFile ? String(getValueByPath(polishFile.data, key) ?? '') : '';
+                             const enValue = englishFile ? String(getValueByPath(englishFile.data, key) ?? '') : '';
                             return (
                             <tr key={key} className={`transition-colors ${formState.selectedKeys.has(key) ? 'bg-teal-900/20' : 'hover:bg-gray-800/50'}`}>
                                 <td className="p-2 text-center"><input type="checkbox" className="rounded" checked={formState.selectedKeys.has(key)} onChange={() => toggleKeySelection(key)}/></td>
@@ -339,27 +346,28 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
                                 </td>
                                 <td className="p-2 font-mono text-teal-300 break-words">{key}</td>
                                 <td className="p-2">
-                                    <textarea
-                                        rows={2}
-                                        value={plValue}
-                                        onChange={(e) => handleInlineChange(key, 'pl', e.target.value)}
-                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-md p-1 resize-y text-gray-300 focus:border-teal-500"
-                                        placeholder={!polishFile ? "pl file not found" : ""}
-                                        disabled={!polishFile}
+                                    <EditableValueTextarea
+                                        initialValue={plValue}
+                                        onSave={(newValue) => polishFile && props.onUpdateValue(polishFile.name, key, newValue)}
+                                        fileFound={!!polishFile}
+                                        lang="pl"
                                     />
                                 </td>
                                 <td className="p-2">
-                                    <textarea
-                                        rows={2}
-                                        value={enValue}
-                                        onChange={(e) => handleInlineChange(key, 'en', e.target.value)}
-                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-md p-1 resize-y text-gray-300 focus:border-teal-500"
-                                        placeholder={!englishFile ? "en file not found" : ""}
-                                        disabled={!englishFile}
+                                    <EditableValueTextarea
+                                        initialValue={enValue}
+                                        onSave={(newValue) => englishFile && props.onUpdateValue(englishFile.name, key, newValue)}
+                                        fileFound={!!englishFile}
+                                        lang="en"
                                     />
                                 </td>
                                 <td className="p-2 text-gray-400 italic">
-                                    <textarea rows={2} value={String(getValueByPath(contexts, key) || '')} onChange={(e) => props.onUpdateContext(key, e.target.value)} className="w-full bg-transparent p-1 border border-transparent hover:border-gray-600 focus:border-teal-500 rounded resize-y"/>
+                                     <EditableValueTextarea
+                                        initialValue={String(getValueByPath(contexts, key) || '')}
+                                        onSave={(newValue) => props.onUpdateContext(key, newValue)}
+                                        fileFound={true}
+                                        lang="context"
+                                     />
                                 </td>
                             </tr>
                         )})}
@@ -410,6 +418,17 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
                      <div className="flex items-center gap-2">
                          <button onClick={handleExpandAll} className="text-xs font-medium py-1 px-3 rounded-md transition-all duration-200 bg-gray-700 hover:bg-gray-600 text-gray-200">Expand All</button>
                          <button onClick={() => handleCollapseAll(group)} className="text-xs font-medium py-1 px-3 rounded-md transition-all duration-200 bg-gray-700 hover:bg-gray-600 text-gray-200">Collapse All</button>
+                         <button
+                            onClick={() => handleCopyAllKeys(group)}
+                            className={`text-xs font-medium py-1 px-3 rounded-md transition-all duration-200 flex items-center space-x-1.5 ${
+                                copied
+                                ? 'bg-green-600 text-white'
+                                : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+                            }`}
+                            >
+                            {copied ? ( <> <CheckIcon className="w-4 h-4" /> <span>Copied!</span> </> ) 
+                            : ( <> <ClipboardIcon className="w-4 h-4" /> <span>Copy All Keys</span> </> )}
+                        </button>
                     </div>
                     <div className="flex items-end space-x-2">
                          <button

@@ -12,13 +12,14 @@ interface BulkTranslateViewProps {
   contexts: Record<string, any>;
   translationHistory: TranslationHistory;
   onSave: (targetLang: string, updatedValues: Record<string, string>) => void;
+  globalContext: string;
+  onUpdateGlobalContext: (context: string) => void;
 }
 
 export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
-  const { allKeys, files, contexts, translationHistory, onSave } = props;
+  const { allKeys, files, contexts, translationHistory, onSave, globalContext, onUpdateGlobalContext } = props;
 
   const [targetLang, setTargetLang] = useState<string>('');
-  const [globalContext, setGlobalContext] = useState<string>('');
   const [isGlobalContextModalOpen, setIsGlobalContextModalOpen] = useState(false);
   
   const [isLoading, setIsLoading] = useState(false);
@@ -129,7 +130,7 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
         isOpen={isGlobalContextModalOpen}
         onClose={() => setIsGlobalContextModalOpen(false)}
         context={globalContext}
-        onUpdateContext={setGlobalContext}
+        onUpdateContext={onUpdateGlobalContext}
     />
     <div className="flex flex-col h-full bg-gray-900 text-gray-200">
         <div className="p-4 border-b border-gray-700 flex-shrink-0 bg-gray-800/50 space-y-4">

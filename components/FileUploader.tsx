@@ -12,6 +12,7 @@ interface FileUploaderProps {
       contexts: Record<string, string>, 
       history: TranslationHistory, 
       groups: TranslationGroup[],
+      globalContext: string,
   }) => void;
   compact?: boolean;
 }
@@ -24,7 +25,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
     setError(null);
     let filesToProcess: {name: string, text: () => Promise<string>}[] = Array.from(fileList).map(f => ({ name: f.name, text: () => f.text() }));
 
-    const defaultResult = { translationFiles: [], contexts: {}, history: {}, groups: [] };
+    const defaultResult = { translationFiles: [], contexts: {}, history: {}, groups: [], globalContext: '' };
 
     if (filesToProcess.length === 1 && (filesToProcess[0].name.endsWith('.zip') || fileList[0].type === 'application/zip')) {
       try {
@@ -33,8 +34,8 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
         const zip = await jszip.loadAsync(zipFile);
         const unzippedFiles: {name: string, text: () => Promise<string>}[] = [];
         zip.forEach((relativePath: string, file: any) => {
-          if (!file.dir && file.name.endsWith('.json')) {
-            unzippedFiles.push({
+          if (!file.dir) {
+             unzippedFiles.push({
               name: file.name.split('/').pop() || file.name, // get just filename
               text: () => file.async('string'),
             });
@@ -53,31 +54,30 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
     let contexts: Record<string, string> = {};
     let history: TranslationHistory = {};
     let groups: TranslationGroup[] = [];
+    let globalContext: string = '';
 
     for (const file of filesToProcess) {
-      if (!file.name.endsWith('.json')) {
-        setError(`File "${file.name}" is not a valid JSON file.`);
-        onFilesUploaded(defaultResult);
-        return;
-      }
       try {
         const text = await file.text();
-        const data = JSON.parse(text);
         
         if (file.name === 'context.json') {
-          contexts = data;
+          contexts = JSON.parse(text);
         } else if (file.name === 'history.json') {
-          history = data;
+          history = JSON.parse(text);
         } else if (file.name === 'groups.json') {
-          groups = data;
-        } else {
+          groups = JSON.parse(text);
+        } else if (file.name === 'global_context.txt') {
+          globalContext = text;
+        } else if (file.name.endsWith('.json')) {
           const fileName = file.name.replace('.json', '');
-          translationFiles.push({ name: fileName, data });
+          translationFiles.push({ name: fileName, data: JSON.parse(text) });
         }
       } catch (err) {
-        setError(`Error parsing "${file.name}". Please ensure it's valid JSON.`);
-        onFilesUploaded(defaultResult);
-        return;
+        if (file.name !== 'global_context.txt') {
+            setError(`Error parsing "${file.name}". Please ensure it's valid JSON.`);
+            onFilesUploaded(defaultResult);
+            return;
+        }
       }
     }
     
@@ -87,7 +87,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
         return;
     }
 
-    onFilesUploaded({ translationFiles, contexts, history, groups });
+    onFilesUploaded({ translationFiles, contexts, history, groups, globalContext });
   }, [onFilesUploaded]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,7 +132,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
                 id="file-upload-compact" 
                 type="file" 
                 multiple 
-                accept=".json,.zip" 
+                accept=".json,.zip,.txt" 
                 onChange={handleFileChange} 
                 className="hidden"
             />
@@ -157,13 +157,13 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
             <span className="font-semibold text-teal-400">Click to upload</span> or drag and drop
           </p>
           <p className="text-xs text-gray-500">JSON files or a single ZIP file</p>
-          <p className="text-xs text-gray-500 mt-1">Optional: `context.json`, `history.json`, `groups.json`</p>
+          <p className="text-xs text-gray-500 mt-1">Optional: `context.json`, `history.json`, `groups.json`, `global_context.txt`</p>
         </div>
         <input 
           id="file-upload" 
           type="file" 
           multiple 
-          accept=".json,.zip" 
+          accept=".json,.zip,.txt" 
           onChange={handleFileChange} 
           className="hidden"
         />

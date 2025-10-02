@@ -94,6 +94,7 @@ const App: React.FC = () => {
   const [contexts, setContexts] = useState<Record<string, any>>({});
   const [translationHistory, setTranslationHistory] = useState<TranslationHistory>({});
   const [translationGroups, setTranslationGroups] = useState<TranslationGroup[]>([]);
+  const [globalContext, setGlobalContext] = useState<string>('');
   const [allKeys, setAllKeys] = useState<string[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   
@@ -119,11 +120,12 @@ const App: React.FC = () => {
       }
   }, [translationGroups, selectedGroupId, groupMode]);
 
-  const handleFilesUpload = (uploadResult: { translationFiles: TranslationFile[], contexts: Record<string, string>, history: TranslationHistory, groups: TranslationGroup[] }) => {
+  const handleFilesUpload = (uploadResult: { translationFiles: TranslationFile[], contexts: Record<string, string>, history: TranslationHistory, groups: TranslationGroup[], globalContext: string }) => {
     setTranslationFiles(uploadResult.translationFiles);
     setContexts(uploadResult.contexts);
     setTranslationHistory(uploadResult.history);
     setTranslationGroups(uploadResult.groups);
+    setGlobalContext(uploadResult.globalContext);
 
     if (uploadResult.groups.length > 0) {
         setSelectedGroupId(uploadResult.groups[0].id);
@@ -234,6 +236,10 @@ const App: React.FC = () => {
           zip.file('groups.json', groupsString);
       }
 
+      if (globalContext) {
+        zip.file('global_context.txt', globalContext);
+      }
+
       const blob = await zip.generateAsync({ type: 'blob' });
       saveAs(blob, 'translations.zip');
 
@@ -310,6 +316,8 @@ const App: React.FC = () => {
                 contexts={contexts}
                 translationHistory={translationHistory}
                 onSave={handleSaveBulkTranslations}
+                globalContext={globalContext}
+                onUpdateGlobalContext={setGlobalContext}
             />
         );
       default:

@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { TranslationFile, TranslationHistory, AIAnalysisResult } from '../types';
+import type { TranslationFile, TranslationHistory, AIAnalysisResult, Glossary } from '../types';
 import { TranslationAnalysisCard } from './TranslationAnalysisCard';
 import { getValueByPath } from '../services/translationService';
 import { analyzeTranslations, buildAnalysisPrompt } from '../services/aiService';
@@ -15,10 +15,11 @@ interface ValueSearchResultsViewProps {
   translationHistory: TranslationHistory;
   onUpdateValue: (fileName: string, key: string, newValue: any) => void;
   onUpdateContext: (key: string, newContext: string) => void;
+  glossary: Glossary;
 }
 
 export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (props) => {
-    const { keys, searchQuery } = props;
+    const { keys, searchQuery, glossary } = props;
     const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
     const [analysisData, setAnalysisData] = useState<Record<string, {
         result: AIAnalysisResult | null;
@@ -69,7 +70,8 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
         
         const prompt = buildAnalysisPrompt(
             sampleKey, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
-            props.translationHistory
+            props.translationHistory,
+            glossary
         );
         
         setGeneratedPrompt(prompt);
@@ -98,7 +100,8 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
             
             return analyzeTranslations(
                 key, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
-                props.translationHistory
+                props.translationHistory,
+                glossary
             )
             .then(result => ({ key, status: 'fulfilled', value: result }))
             .catch(error => ({ key, status: 'rejected', reason: error as Error }));
@@ -111,8 +114,7 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
             if (!newAnalysisData[result.key]) {
                 newAnalysisData[result.key] = { result: null, error: null };
             }
-
-            // FIX: Add 'in' operator as a type guard for TypeScript to correctly narrow down the union type.
+            
             if (result.status === 'fulfilled' && 'value' in result) {
                 newAnalysisData[result.key].result = result.value;
             } else if (result.status === 'rejected' && 'reason' in result) {
@@ -198,6 +200,7 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
                             isLoading={isAnalyzingAll}
                             isCollapsed={collapsedKeys.has(key)}
                             onToggleCollapse={handleToggleCollapse}
+                            glossary={glossary}
                         />
                     );
                 })}

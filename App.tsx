@@ -1,19 +1,22 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import type { TranslationFile, TranslationHistory, TranslationGroup } from './types';
+import type { TranslationFile, TranslationHistory, TranslationGroup, Glossary } from './types';
 import { flattenObjectKeys, setValueByPath, getValueByPath } from './services/translationService';
 import { FileUploader } from './components/FileUploader';
 import { TranslationKeyList } from './components/TranslationKeyList';
 import { TranslationView } from './components/TranslationView';
 import { GroupsView } from './components/GroupsView';
 import { BulkTranslateView } from './components/BulkTranslateView';
-import { LogoIcon, DownloadIcon, ListBulletIcon, CollectionIcon, PlusCircleIcon, EditIcon, TrashIcon, LanguageIcon } from './components/Icons';
+import { ValueSearchPanel } from './components/ValueSearchPanel';
+import { ValueSearchResultsView } from './components/ValueSearchResultsView';
+import { GlossaryModal } from './components/GlossaryModal';
+import { LogoIcon, DownloadIcon, ListBulletIcon, CollectionIcon, PlusCircleIcon, EditIcon, TrashIcon, LanguageIcon, SearchIcon, BookOpenIcon } from './components/Icons';
 
 // Declare JSZip and saveAs for TypeScript since they are loaded from script tags
 declare var JSZip: any;
 declare var saveAs: any;
 
-type ActiveView = 'keys' | 'groups' | 'bulk';
+type ActiveView = 'keys' | 'groups' | 'bulk' | 'search';
 type GroupMode = 'list' | 'create' | 'edit';
 
 // Component for the sidebar when 'Groups' view is active
@@ -94,18 +97,24 @@ const App: React.FC = () => {
   const [contexts, setContexts] = useState<Record<string, any>>({});
   const [translationHistory, setTranslationHistory] = useState<TranslationHistory>({});
   const [translationGroups, setTranslationGroups] = useState<TranslationGroup[]>([]);
+  const [glossary, setGlossary] = useState<Glossary>({});
   const [allKeys, setAllKeys] = useState<string[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   
   const [activeView, setActiveView] = useState<ActiveView>('keys');
+  const [searchQuery, setSearchQuery] = useState<{ term: string, lang: string } | null>(null);
 
   // State for Groups view
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [groupMode, setGroupMode] = useState<GroupMode>('list');
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
 
   useEffect(() => {
       if (activeView !== 'groups') {
           setGroupMode('list');
+      }
+      if (activeView !== 'search') {
+          setSearchQuery(null);
       }
   }, [activeView]);
 
@@ -119,11 +128,12 @@ const App: React.FC = () => {
       }
   }, [translationGroups, selectedGroupId, groupMode]);
 
-  const handleFilesUpload = (uploadResult: { translationFiles: TranslationFile[], contexts: Record<string, string>, history: TranslationHistory, groups: TranslationGroup[] }) => {
+  const handleFilesUpload = (uploadResult: { translationFiles: TranslationFile[], contexts: Record<string, string>, history: TranslationHistory, groups: TranslationGroup[], glossary: Glossary }) => {
     setTranslationFiles(uploadResult.translationFiles);
     setContexts(uploadResult.contexts);
     setTranslationHistory(uploadResult.history);
     setTranslationGroups(uploadResult.groups);
+    setGlossary(uploadResult.glossary);
 
     if (uploadResult.groups.length > 0) {
         setSelectedGroupId(uploadResult.groups[0].id);
@@ -233,6 +243,11 @@ const App: React.FC = () => {
           const groupsString = JSON.stringify(translationGroups, null, 2);
           zip.file('groups.json', groupsString);
       }
+      
+      if (Object.keys(glossary).length > 0) {
+          const glossaryString = JSON.stringify(glossary, null, 2);
+          zip.file('glossary.json', glossaryString);
+      }
 
       const blob = await zip.generateAsync({ type: 'blob' });
       saveAs(blob, 'translations.zip');
@@ -268,6 +283,20 @@ const App: React.FC = () => {
 
   const hasFiles = useMemo(() => translationFiles.length > 0, [translationFiles]);
 
+  const searchResultKeys = useMemo(() => {
+    if (!searchQuery || !searchQuery.term) return [];
+    
+    const searchFile = translationFiles.find(f => f.name === searchQuery.lang);
+    if (!searchFile) return [];
+
+    const lowercasedTerm = searchQuery.term.toLowerCase();
+    
+    return allKeys.filter(key => {
+        const value = getValueByPath(searchFile.data, key);
+        return typeof value === 'string' && value.toLowerCase().includes(lowercasedTerm);
+    });
+  }, [searchQuery, allKeys, translationFiles]);
+
   const mainContent = () => {
     switch (activeView) {
       case 'keys':
@@ -279,6 +308,7 @@ const App: React.FC = () => {
               context={getValueByPath(contexts, selectedKey) || ''}
               onUpdateContext={(newContext) => handleUpdateContext(selectedKey, newContext)}
               translationHistory={translationHistory}
+              glossary={glossary}
           />
         ) : (
           <div className="flex items-center justify-center h-full bg-gray-800/30 rounded-lg m-8">
@@ -300,6 +330,7 @@ const App: React.FC = () => {
                 selectedGroupId={selectedGroupId}
                 onSetGroupMode={setGroupMode}
                 onSetSelectedGroupId={setSelectedGroupId}
+                glossary={glossary}
             />
         );
       case 'bulk':
@@ -310,6 +341,20 @@ const App: React.FC = () => {
                 contexts={contexts}
                 translationHistory={translationHistory}
                 onSave={handleSaveBulkTranslations}
+                glossary={glossary}
+            />
+        );
+      case 'search':
+        return (
+            <ValueSearchResultsView 
+                keys={searchResultKeys}
+                searchQuery={searchQuery}
+                files={translationFiles}
+                contexts={contexts}
+                translationHistory={translationHistory}
+                onUpdateValue={handleUpdateValueAndHistory}
+                onUpdateContext={handleUpdateContext}
+                glossary={glossary}
             />
         );
       default:
@@ -324,6 +369,13 @@ const App: React.FC = () => {
 
   return (
     <>
+      <GlossaryModal
+          isOpen={isGlossaryOpen}
+          onClose={() => setIsGlossaryOpen(false)}
+          glossary={glossary}
+          onUpdateGlossary={setGlossary}
+          languages={translationFiles.map(f => f.name)}
+      />
       <div className="bg-gray-900 text-gray-200 flex flex-col h-full">
           {!hasFiles ? (
             <main className="flex-grow flex items-center justify-center p-4">
@@ -332,18 +384,22 @@ const App: React.FC = () => {
                     <LogoIcon className="h-10 w-10 text-teal-400" />
                     <h1 className="text-3xl font-bold text-gray-100">Translation AI Assistant</h1>
                 </div>
-                <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, and `groups.json`.</p>
+                <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, `groups.json`, and `glossary.json`.</p>
                 <FileUploader onFilesUploaded={handleFilesUpload} />
               </div>
             </main>
           ) : (
             <div className="flex h-full w-full">
               <aside className="w-96 flex-shrink-0 bg-gray-800/50 border-r border-gray-700 flex flex-col h-full">
-                <div className="p-4 border-b border-gray-700 flex-shrink-0">
+                <div className="p-4 border-b border-gray-700 flex-shrink-0 flex justify-between items-center">
                     <div className="flex items-center space-x-3">
                         <LogoIcon className="h-8 w-8 text-teal-400" />
-                        <h1 className="text-xl font-bold text-gray-100 truncate">Translation AI Assistant</h1>
+                        <h1 className="text-xl font-bold text-gray-100 truncate">Translation AI</h1>
                     </div>
+                     <button onClick={() => setIsGlossaryOpen(true)} className="flex items-center space-x-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium py-1 px-2.5 rounded-md transition-colors">
+                        <BookOpenIcon className="w-4 h-4" />
+                        <span>Glossary</span>
+                    </button>
                 </div>
                 <div className="p-4 border-b border-gray-700 flex-shrink-0">
                     <button
@@ -357,6 +413,7 @@ const App: React.FC = () => {
                 <div className="flex border-b border-gray-700 flex-shrink-0">
                     <button
                         onClick={() => setActiveView('keys')}
+                        title="View by Key"
                         className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'keys' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
                     >
                         <ListBulletIcon className="w-5 h-5" />
@@ -364,6 +421,7 @@ const App: React.FC = () => {
                     </button>
                      <button
                         onClick={() => setActiveView('groups')}
+                        title="View by Group"
                         className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'groups' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
                     >
                         <CollectionIcon className="w-5 h-5" />
@@ -371,10 +429,19 @@ const App: React.FC = () => {
                     </button>
                     <button
                         onClick={() => setActiveView('bulk')}
+                        title="Bulk Translate"
                         className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'bulk' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
                     >
                         <LanguageIcon className="w-5 h-5" />
-                        <span>Bulk Translate</span>
+                        <span>Bulk</span>
+                    </button>
+                    <button
+                        onClick={() => setActiveView('search')}
+                        title="Search by Value"
+                        className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'search' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
+                    >
+                        <SearchIcon className="w-5 h-5" />
+                        <span>Search</span>
                     </button>
                 </div>
 
@@ -394,6 +461,11 @@ const App: React.FC = () => {
                     onStartEditing={handleStartEditingGroup}
                     onDeleteGroup={handleDeleteGroup}
                   />
+                ) : activeView === 'search' ? (
+                   <ValueSearchPanel 
+                        onSearch={(term, lang) => setSearchQuery({ term, lang })}
+                        languages={translationFiles.map(f => f.name)}
+                   />
                 ) : null}
               </aside>
               <main className="flex-1 overflow-hidden">

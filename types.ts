@@ -27,12 +27,11 @@ export interface TranslationGroup {
   keys: string[];
   referenceKeys: string[];
 }
-// Fix: Add missing Glossary type definition.
+
 // Defines the structure for a glossary.
 // Example: { "Zapisz": { "en": "Save", "de": "Speichern" } }
 export type Glossary = Record<string, Record<string, string>>;
 
-// Fix: Add missing BulkTranslationSuggestion type definition.
 // Defines the structure for a single bulk translation suggestion.
 export interface BulkTranslationSuggestion {
   key: string;

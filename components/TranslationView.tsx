@@ -1,6 +1,6 @@
 
 import React from 'react';
-import type { TranslationFile, TranslationHistory } from '../types';
+import type { TranslationFile, TranslationHistory, Glossary } from '../types';
 import { TranslationAnalysisCard } from './TranslationAnalysisCard';
 
 interface TranslationViewProps {
@@ -10,6 +10,7 @@ interface TranslationViewProps {
   context: string;
   onUpdateContext: (newContext: string) => void;
   translationHistory: TranslationHistory;
+  glossary: Glossary;
 }
 
 export const TranslationView: React.FC<TranslationViewProps> = (props) => {
@@ -23,6 +24,7 @@ export const TranslationView: React.FC<TranslationViewProps> = (props) => {
             onUpdateValue={props.onUpdateValue}
             onUpdateContext={props.onUpdateContext}
             showFilePreview={true}
+            glossary={props.glossary}
         />
     </div>
   );

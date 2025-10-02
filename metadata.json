@@ -1,0 +1,5 @@
+{
+  "name": "FULL Translation Comparator with AI Assistant",
+  "description": "An application to import and compare JSON translation files. Users can provide context for each translation key, and an AI assistant will analyze the translations for accuracy, treating the Polish version as the source of truth. Features include editing values and downloading updated files.",
+  "requestFramePermissions": []
+}

@@ -1,5 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+// FIX: Import Glossary type.
 import type { AIAnalysisResult, TranslationHistory, Glossary } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -29,6 +30,7 @@ const analysisSchema = {
 
 const polishFileFinder = (f: { name: string }) => f.name.toLowerCase().includes('pl') || f.name.toLowerCase().includes('polish');
 
+// FIX: Add optional glossary parameter to provide more context to the AI.
 export const buildAnalysisPrompt = (
   translationKey: string,
   context: string,
@@ -36,8 +38,8 @@ export const buildAnalysisPrompt = (
   englishTranslation: { lang: string; value: string } | null,
   translationsToReview: { lang: string; value: string }[],
   translationHistory: TranslationHistory,
-  glossary?: Glossary,
-  groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[]
+  groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[],
+  glossary?: Glossary
 ): string => {
     const allTranslationsToAnalyze = [
         polishTranslation,
@@ -49,19 +51,6 @@ export const buildAnalysisPrompt = (
         .map(t => `- Language: ${t.lang}, Translation: "${t.value}"`)
         .join('\n');
     
-    let glossaryString = "";
-    if (glossary && Object.keys(glossary).length > 0) {
-        const glossaryEntries = Object.entries(glossary).map(([sourceTerm, translations]) => {
-            const translationsText = Object.entries(translations).map(([lang, text]) => `${lang}: "${text}"`).join(', ');
-            return `- Termin '${sourceTerm}' (PL) musi być zawsze tłumaczony jako: ${translationsText}. Jest to reguła o najwyższym priorytecie.`;
-        }).join('\n');
-        glossaryString = `
-**Słownik (Glossary - PRIORYTET KRYTYCZNY):**
-Poniższe terminy mają zdefiniowane, stałe tłumaczenia. Ich zastosowanie jest obowiązkowe i nadrzędne wobec wszystkich innych reguł. Każde odstępstwo jest błędem krytycznym.
-${glossaryEntries}
-`;
-    }
-
     let groupReferenceString = "";
     if (groupReferenceTranslations && groupReferenceTranslations.length > 0) {
         const referenceEntries = groupReferenceTranslations.map(ref => {
@@ -91,7 +80,23 @@ ${historyEntries}
 `;
         }
     }
+    
+    // FIX: Add glossary section to the prompt.
+    let glossaryString = "";
+    if (glossary && Object.keys(glossary).length > 0) {
+        const glossaryEntries = Object.entries(glossary).map(([term, translations]) => {
+            const translationList = Object.entries(translations).map(([lang, value]) => `${lang}: "${value}"`).join(', ');
+            return `- Termin '${term}' musi być tłumaczony spójnie: ${translationList}`;
+        }).join('\n');
 
+        glossaryString = `
+**Globalny Glosariusz (PRIORYTET WYSOKI):**
+Poniższe terminy mają zdefiniowane, stałe tłumaczenia. Stosuj się do nich bezwzględnie.
+${glossaryEntries}
+`;
+    }
+
+    // FIX: Update prompt structure to include glossary and adjust priority.
     const prompt = `Jesteś światowej klasy ekspertem lingwistycznym, specjalizującym się w lokalizacji oprogramowania. Twoja praca wymaga absolutnej precyzji. Twoje odpowiedzi (w polach 'feedback' i 'suggestion') MUSZĄ być w języku polskim.
 
 **KRYTYCZNE INSTRUKCJE ZADANIA (NAJWYŻSZY PRIORYTET):**
@@ -101,15 +106,15 @@ ${historyEntries}
 4.  **WERYFIKACJA ŹRÓDŁA:** Sprawdź również samo tłumaczenie polskie i angielskie pod kątem błędów gramatycznych, literówek czy niezręczności stylistycznych. Jeśli zauważysz problem, wskaż go w ocenie dla danego języka i zasugeruj poprawkę.
 
 Obowiązuje następująca hierarchia ważności informacji (od najważniejszej):
-1.  **Słownik (Glossary)**
-2.  **Wzorce Kontekstowe Grupy**
-3.  **Historia Zmian**
+1.  **Wzorce Kontekstowe Grupy**
+2.  **Historia Zmian**
+3.  **Globalny Glosariusz**
 4.  **Źródło Prawdy (Polski)**
 5.  **Kontekst Ogólny**
 
-${glossaryString}
 ${groupReferenceString}
 ${historyContextString}
+${glossaryString}
 
 **ABSOLUTNE ŹRÓDŁO PRAWDY (POLSKI - ${polishTranslation.lang}):**
 "${polishTranslation.value}"
@@ -135,6 +140,7 @@ Zwróć odpowiedź w ustrukturyzowanym formacie JSON, zgodnie z podanym schemate
     return prompt;
 };
 
+// FIX: Add optional glossary parameter to match buildAnalysisPrompt.
 export const analyzeTranslations = async (
   translationKey: string,
   context: string,
@@ -142,13 +148,13 @@ export const analyzeTranslations = async (
   englishTranslation: { lang:string; value: string } | null,
   translationsToReview: { lang: string; value: string }[],
   translationHistory: TranslationHistory,
-  glossary?: Glossary,
-  groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[]
+  groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[],
+  glossary?: Glossary
 ): Promise<AIAnalysisResult> => {
   
   const prompt = buildAnalysisPrompt(
     translationKey, context, polishTranslation, englishTranslation, translationsToReview,
-    translationHistory, glossary, groupReferenceTranslations
+    translationHistory, groupReferenceTranslations, glossary
   );
 
   try {
@@ -192,7 +198,7 @@ export const buildGenerateContextPrompt = (
     .map(t => `- Language: ${t.lang}, Translation: "${t.value}"`)
     .join('\n');
 
-  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzyjnego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza i jego istniejących wartości, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
+  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzjyjnego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza i jego istniejących wartości, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
 
 Klucz: "${translationKey}"
 
@@ -259,7 +265,6 @@ const buildBulkTranslatePrompt = (
     keysToTranslate: { key: string, pl: string, en: string, context: string, currentValue: string }[],
     targetLang: string,
     history: TranslationHistory,
-    glossary: Glossary,
     globalContext: string
 ) => {
     
@@ -274,17 +279,6 @@ const buildBulkTranslatePrompt = (
         .filter(Boolean)
         .join('\n');
         
-    const glossaryString = Object.entries(glossary)
-        .map(([sourceTerm, translations]) => {
-            const targetTranslation = translations[targetLang];
-            if (targetTranslation) {
-                return `- Polski termin '${sourceTerm}' musi być przetłumaczony jako "${targetTranslation}".`;
-            }
-            return null;
-        })
-        .filter(Boolean)
-        .join('\n');
-
     const keysString = keysToTranslate.map(k => 
 `
 - Key: "${k.key}"
@@ -301,15 +295,11 @@ const buildBulkTranslatePrompt = (
 ${globalContext || "Brak ogólnego kontekstu. Skup się na poszczególnych kluczach."}
 
 **KRYTYCZNE ZASADY (NAJWYŻSZY PRIORYTET):**
-1.  **Słownik (Glossary):** Poniższe terminy MUSZĄ być przetłumaczone dokładnie tak, jak podano. Jest to absolutnie nadrzędna reguła.
-2.  **Źródło Prawdy:** Język **polski** jest absolutnym źródłem prawdy dla znaczenia.
-3.  **Kontekst Pomocniczy:** Język **angielski** oraz kontekst dla klucza służą jako dodatkowy kontekst.
-4.  **Spójność:** Zachowaj absolutną spójność terminologii i stylu we wszystkich tłumaczeniach w tej grupie. Jeśli słowo "Zapisz" w jednym kluczu jest tłumaczone jako "Save", w innym kluczu nie może być "Store". Ta spójność jest kluczowa.
-5.  **Historia:** Poniżej znajduje się lista wcześniej zatwierdzonych przez człowieka tłumaczeń. Mają one wysoki priorytet.
-6.  **Format Wyjściowy:** Zwróć **TYLKO I WYŁĄCZNIE** obiekt JSON. Nie dołączaj żadnego dodatkowego tekstu ani formatowania markdown.
-
-**Słownik dla języka ${targetLang} (PRIORYTET KRYTYCZNY):**
-${glossaryString || "Brak słownika dla tego języka."}
+1.  **Źródło Prawdy:** Język **polski** jest absolutnym źródłem prawdy dla znaczenia.
+2.  **Kontekst Pomocniczy:** Język **angielski** oraz kontekst dla klucza służą jako dodatkowy kontekst.
+3.  **Spójność:** Zachowaj absolutną spójność terminologii i stylu we wszystkich tłumaczeniach w tej grupie. Jeśli słowo "Zapisz" w jednym kluczu jest tłumaczone jako "Save", w innym kluczu nie może być "Store". Ta spójność jest kluczowa.
+4.  **Historia:** Poniżej znajduje się lista wcześniej zatwierdzonych przez człowieka tłumaczeń. Mają one wysoki priorytet.
+5.  **Format Wyjściowy:** Zwróć **TYLKO I WYŁĄCZNIE** obiekt JSON. Nie dołączaj żadnego dodatkowego tekstu ani formatowania markdown.
 
 **Zatwierdzona historia dla języka ${targetLang} (PRIORYTET WYSOKI):**
 ${historyString || "Brak historii dla tego języka."}
@@ -325,7 +315,6 @@ export const bulkTranslateKeys = async (
     keysToTranslate: { key: string, pl: string, en: string, context: string, currentValue: string }[],
     targetLang: string,
     history: TranslationHistory,
-    glossary: Glossary,
     globalContext: string,
     onProgress: (progress: { current: number, total: number }) => void
 ): Promise<{ key: string, suggestion: string }[]> => {
@@ -337,7 +326,7 @@ export const bulkTranslateKeys = async (
 
     for (let i = 0; i < totalKeys; i += CHUNK_SIZE) {
         const chunk = keysToTranslate.slice(i, i + CHUNK_SIZE);
-        const prompt = buildBulkTranslatePrompt(chunk, targetLang, history, glossary, globalContext);
+        const prompt = buildBulkTranslatePrompt(chunk, targetLang, history, globalContext);
 
         try {
             const response = await ai.models.generateContent({

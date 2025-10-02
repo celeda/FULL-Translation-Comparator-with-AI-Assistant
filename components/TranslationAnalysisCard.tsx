@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import type { TranslationFile, AIAnalysisResult, AnalysisItem, TranslationHistory, Glossary } from '../types';
+import type { TranslationFile, AIAnalysisResult, AnalysisItem, TranslationHistory } from '../types';
 import { getValueByPath, getLineNumber } from '../services/translationService';
 import { analyzeTranslations, generateContextForKey, buildAnalysisPrompt, buildGenerateContextPrompt } from '../services/aiService';
 import { CheckIcon, EditIcon, ClipboardIcon, SparklesIcon, PanelOpenIcon, PanelCloseIcon, BoltIcon, PlusCircleIcon, LightBulbIcon, CloseIcon, CodeBracketIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
@@ -16,7 +16,6 @@ interface TranslationAnalysisCardProps {
   context: string;
   onUpdateContext: (newContext: string) => void;
   translationHistory: TranslationHistory;
-  glossary?: Glossary;
   showFilePreview?: boolean;
   analysisResult?: AIAnalysisResult | null;
   isLoading?: boolean;
@@ -176,7 +175,7 @@ const StatusBadge: React.FC<{ type: 'Good' | 'Needs Improvement' | 'Incorrect'; 
 export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (props) => {
   const { 
       files, translationKey, onUpdateValue, context: parentContext, onUpdateContext, 
-      translationHistory, glossary, showFilePreview = false,
+      translationHistory, showFilePreview = false,
       analysisResult: analysisResultProp,
       isLoading: isLoadingProp,
       error: errorProp,
@@ -298,7 +297,7 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
         .filter(f => f.name !== polishFile.name && f.name !== englishFile?.name)
         .map(f => ({ lang: f.name, value: String(getValueByPath(f.data, translationKey) || ''), }));
     
-    const prompt = buildAnalysisPrompt(translationKey, localContext, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations, translationHistory, glossary, groupReferenceTranslations);
+    const prompt = buildAnalysisPrompt(translationKey, localContext, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations);
     setGeneratedPrompt(prompt);
     setIsPromptModalOpen(true);
   };
@@ -347,7 +346,6 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
             englishTranslation,
             otherTranslations, 
             translationHistory,
-            glossary,
             groupReferenceTranslations
         );
         setSelfManagedAnalysisResult(result);

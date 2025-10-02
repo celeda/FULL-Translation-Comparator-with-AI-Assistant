@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
-import type { TranslationFile, TranslationHistory, Glossary } from '../types';
+import type { TranslationFile, TranslationHistory } from '../types';
 import { getValueByPath } from '../services/translationService';
 import { bulkTranslateKeys } from '../services/aiService';
 import { LanguageIcon, SparklesIcon, DownloadIcon, GlobeAltIcon, CheckIcon, BoltIcon } from './Icons';
@@ -11,11 +12,10 @@ interface BulkTranslateViewProps {
   contexts: Record<string, any>;
   translationHistory: TranslationHistory;
   onSave: (targetLang: string, updatedValues: Record<string, string>) => void;
-  glossary: Glossary;
 }
 
 export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
-  const { allKeys, files, contexts, translationHistory, onSave, glossary } = props;
+  const { allKeys, files, contexts, translationHistory, onSave } = props;
 
   const [targetLang, setTargetLang] = useState<string>('');
   const [globalContext, setGlobalContext] = useState<string>('');
@@ -73,7 +73,7 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
     }));
 
     try {
-        const results = await bulkTranslateKeys(keysToTranslate, targetLang, translationHistory, glossary, globalContext, setProgress);
+        const results = await bulkTranslateKeys(keysToTranslate, targetLang, translationHistory, globalContext, setProgress);
         
         const suggestionsMap: Record<string, string> = {};
         results.forEach(item => { suggestionsMap[item.key] = item.suggestion; });

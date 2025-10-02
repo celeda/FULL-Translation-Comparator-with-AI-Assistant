@@ -68,9 +68,11 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
             .filter(f => f.name !== polishFile.name && f.name !== englishFile?.name)
             .map(f => ({ lang: f.name, value: String(getValueByPath(f.data, sampleKey) || '') }));
         
+        // FIX: Correctly pass arguments to buildAnalysisPrompt.
         const prompt = buildAnalysisPrompt(
             sampleKey, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
             props.translationHistory,
+            undefined, // No group references in this view
             glossary
         );
         
@@ -98,9 +100,11 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
                 .filter(f => f.name !== polishFile.name && f.name !== englishFile?.name)
                 .map(f => ({ lang: f.name, value: String(getValueByPath(f.data, key) || '') }));
             
+            // FIX: Correctly pass arguments to analyzeTranslations.
             return analyzeTranslations(
                 key, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
                 props.translationHistory,
+                undefined, // No group references in this view
                 glossary
             )
             .then(result => ({ key, status: 'fulfilled', value: result }))

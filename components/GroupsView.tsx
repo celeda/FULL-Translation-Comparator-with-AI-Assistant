@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import type { TranslationFile, TranslationHistory, TranslationGroup, AIAnalysisResult } from '../types';
+import type { TranslationFile, TranslationHistory, TranslationGroup, AIAnalysisResult, Glossary } from '../types';
 import { getValueByPath } from '../services/translationService';
 import { analyzeTranslations, buildAnalysisPrompt } from '../services/aiService';
 import { SearchIcon, PlusCircleIcon, SparklesIcon, CollectionIcon, TrashIcon, EditIcon, StarIcon, CodeBracketIcon, ChevronDownIcon, ChevronUpIcon, ClipboardIcon, CheckIcon } from './Icons';
@@ -22,6 +22,7 @@ interface GroupsViewProps {
     selectedGroupId: string | null;
     onSetGroupMode: (mode: GroupMode) => void;
     onSetSelectedGroupId: (groupId: string | null) => void;
+    glossary: Glossary;
 }
 
 const polishFileFinder = (f: TranslationFile) => f.name.toLowerCase().includes('pl') || f.name.toLowerCase().includes('polish');
@@ -62,6 +63,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
     const { 
         allKeys, files, contexts, groups, onUpdateGroups, 
         groupMode, selectedGroupId, onSetGroupMode, onSetSelectedGroupId,
+        glossary,
     } = props;
     
     const [formState, setFormState] = useState({
@@ -247,7 +249,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
             
         const prompt = buildAnalysisPrompt(
             sampleKey, group.context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
-            props.translationHistory, referenceTranslations
+            props.translationHistory, referenceTranslations, glossary
         );
 
         setGeneratedPrompt(prompt);
@@ -280,7 +282,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
             
             return analyzeTranslations(
                 key, group.context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
-                props.translationHistory, referenceTranslations
+                props.translationHistory, referenceTranslations, glossary
             )
             .then(result => ({ key, status: 'fulfilled', value: result }))
             .catch(error => ({ key, status: 'rejected', reason: error as Error }));
@@ -477,6 +479,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
                             isCollapsed={collapsedKeys.has(key)}
                             onToggleCollapse={handleToggleCollapse}
                             groupReferenceTranslations={referenceTranslations}
+                            glossary={glossary}
                         />
                     );
                 })}

@@ -1,13 +1,14 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import type { TranslationFile, TranslationHistory, TranslationGroup } from './types';
+import type { TranslationFile, TranslationHistory, TranslationGroup, Glossary } from './types';
 import { flattenObjectKeys, setValueByPath, getValueByPath } from './services/translationService';
 import { FileUploader } from './components/FileUploader';
 import { TranslationKeyList } from './components/TranslationKeyList';
 import { TranslationView } from './components/TranslationView';
 import { GroupsView } from './components/GroupsView';
 import { BulkTranslateView } from './components/BulkTranslateView';
-import { LogoIcon, DownloadIcon, ListBulletIcon, CollectionIcon, PlusCircleIcon, EditIcon, TrashIcon, LanguageIcon, SearchIcon } from './components/Icons';
+import { GlossaryModal } from './components/GlossaryModal';
+import { LogoIcon, DownloadIcon, ListBulletIcon, CollectionIcon, PlusCircleIcon, EditIcon, TrashIcon, LanguageIcon, SearchIcon, BookOpenIcon, UploadIcon } from './components/Icons';
 
 // Declare JSZip and saveAs for TypeScript since they are loaded from script tags
 declare var JSZip: any;
@@ -15,6 +16,16 @@ declare var saveAs: any;
 
 type ActiveView = 'keys' | 'groups' | 'bulk';
 type GroupMode = 'list' | 'create' | 'edit';
+
+interface ProjectData {
+    translationFiles: TranslationFile[];
+    contexts: Record<string, any>;
+    translationHistory: TranslationHistory;
+    translationGroups: TranslationGroup[];
+    glossary: Glossary;
+    globalContext: string;
+    lastUpdated: string;
+}
 
 // Component for the sidebar when 'Groups' view is active
 interface GroupListPanelProps {
@@ -90,20 +101,42 @@ const GroupListPanel: React.FC<GroupListPanelProps> = ({
 
 
 const App: React.FC = () => {
-  const [translationFiles, setTranslationFiles] = useState<TranslationFile[]>([]);
-  const [contexts, setContexts] = useState<Record<string, any>>({});
-  const [translationHistory, setTranslationHistory] = useState<TranslationHistory>({});
-  const [translationGroups, setTranslationGroups] = useState<TranslationGroup[]>([]);
-  const [globalContext, setGlobalContext] = useState<string>('');
+  const [projectData, setProjectData] = useState<ProjectData | null>(null);
+  const [initialDataFromStorage, setInitialDataFromStorage] = useState<ProjectData | null>(null);
+  const [isCheckingStorage, setIsCheckingStorage] = useState(true);
+
   const [allKeys, setAllKeys] = useState<string[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  
   const [activeView, setActiveView] = useState<ActiveView>('keys');
-
-  // State for Groups view
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [groupMode, setGroupMode] = useState<GroupMode>('list');
+  const [isGlossaryModalOpen, setIsGlossaryModalOpen] = useState(false);
+  
+  // Load from localStorage on initial mount
+  useEffect(() => {
+    try {
+        const savedData = localStorage.getItem('translationAppState');
+        if (savedData) {
+            setInitialDataFromStorage(JSON.parse(savedData));
+        }
+    } catch (error) {
+        console.error("Failed to load project from local storage:", error);
+        localStorage.removeItem('translationAppState');
+    }
+    setIsCheckingStorage(false);
+  }, []);
 
+  // Save to localStorage whenever projectData changes
+  useEffect(() => {
+    if (projectData) {
+        try {
+            localStorage.setItem('translationAppState', JSON.stringify(projectData));
+        } catch (error) {
+            console.error("Failed to save project to local storage:", error);
+        }
+    }
+  }, [projectData]);
+  
   useEffect(() => {
       if (activeView !== 'groups') {
           setGroupMode('list');
@@ -111,21 +144,41 @@ const App: React.FC = () => {
   }, [activeView]);
 
   useEffect(() => {
-      if (groupMode === 'list') {
-        if (translationGroups.length > 0 && !translationGroups.some(g => g.id === selectedGroupId)) {
-            setSelectedGroupId(translationGroups[0].id);
-        } else if (translationGroups.length === 0) {
+      if (groupMode === 'list' && projectData) {
+        if (projectData.translationGroups.length > 0 && !projectData.translationGroups.some(g => g.id === selectedGroupId)) {
+            setSelectedGroupId(projectData.translationGroups[0].id);
+        } else if (projectData.translationGroups.length === 0) {
             setSelectedGroupId(null);
         }
       }
-  }, [translationGroups, selectedGroupId, groupMode]);
+  }, [projectData?.translationGroups, selectedGroupId, groupMode]);
 
-  const handleFilesUpload = (uploadResult: { translationFiles: TranslationFile[], contexts: Record<string, string>, history: TranslationHistory, groups: TranslationGroup[], globalContext: string }) => {
-    setTranslationFiles(uploadResult.translationFiles);
-    setContexts(uploadResult.contexts);
-    setTranslationHistory(uploadResult.history);
-    setTranslationGroups(uploadResult.groups);
-    setGlobalContext(uploadResult.globalContext);
+  const updateProjectData = (updater: (prev: ProjectData) => Omit<Partial<ProjectData>, 'lastUpdated'>) => {
+    setProjectData(prev => {
+        if (!prev) return null;
+        const updates = updater(prev);
+        return { ...prev, ...updates, lastUpdated: new Date().toISOString() };
+    });
+  };
+
+  const handleFilesUpload = (uploadResult: { 
+      translationFiles: TranslationFile[], 
+      contexts: Record<string, string>, 
+      history: TranslationHistory, 
+      groups: TranslationGroup[],
+      glossary: Glossary,
+      globalContext: string 
+  }) => {
+    const newProjectData: ProjectData = {
+        translationFiles: uploadResult.translationFiles,
+        contexts: uploadResult.contexts,
+        translationHistory: uploadResult.history,
+        translationGroups: uploadResult.groups,
+        glossary: uploadResult.glossary,
+        globalContext: uploadResult.globalContext,
+        lastUpdated: new Date().toISOString()
+    };
+    setProjectData(newProjectData);
 
     if (uploadResult.groups.length > 0) {
         setSelectedGroupId(uploadResult.groups[0].id);
@@ -149,23 +202,45 @@ const App: React.FC = () => {
       setSelectedKey(null);
     }
   };
+  
+  const handleContinueSession = () => {
+    if (initialDataFromStorage) {
+        setProjectData(initialDataFromStorage);
+        // Recalculate allKeys and set initial selected key
+        const allKeysSet = new Set<string>();
+        initialDataFromStorage.translationFiles.forEach(file => {
+            flattenObjectKeys(file.data).forEach(key => allKeysSet.add(key));
+        });
+        const sortedKeys = Array.from(allKeysSet).sort();
+        setAllKeys(sortedKeys);
+        setSelectedKey(sortedKeys[0] || null);
+
+        if (initialDataFromStorage.translationGroups.length > 0) {
+            setSelectedGroupId(initialDataFromStorage.translationGroups[0].id);
+        }
+    }
+  };
+
+  const handleStartNewProject = () => {
+    if (window.confirm("Starting a new project will clear your currently saved session. Are you sure you want to continue?")) {
+        localStorage.removeItem('translationAppState');
+        setProjectData(null);
+        setInitialDataFromStorage(null);
+    }
+  };
 
   const handleUpdateValueAndHistory = (fileName: string, key: string, newValue: any) => {
-    // Update the main translation file data
-    setTranslationFiles(prevFiles => {
-      return prevFiles.map(file => {
-        if (file.name === fileName) {
-          const newData = setValueByPath(file.data, key, newValue);
-          return { ...file, data: newData };
-        }
-        return file;
-      });
-    });
-
-    // Update the translation history with the user's manual override
-    setTranslationHistory(prevHistory => {
-      const newHistoryForKey = { ...prevHistory[key], [fileName]: newValue };
-      return { ...prevHistory, [key]: newHistoryForKey };
+    updateProjectData(prev => {
+        const newFiles = prev.translationFiles.map(file => {
+            if (file.name === fileName) {
+                const newData = setValueByPath(file.data, key, newValue);
+                return { ...file, data: newData };
+            }
+            return file;
+        });
+        const newHistoryForKey = { ...prev.translationHistory[key], [fileName]: newValue };
+        const newHistory = { ...prev.translationHistory, [key]: newHistoryForKey };
+        return { translationFiles: newFiles, translationHistory: newHistory };
     });
   };
 
@@ -173,72 +248,53 @@ const App: React.FC = () => {
     targetLang: string, 
     updatedValues: Record<string, string>
   ) => {
-    // Update translation file
-    setTranslationFiles(prevFiles =>
-      prevFiles.map(file => {
-        if (file.name === targetLang) {
-          let newData = { ...file.data };
-          for (const key in updatedValues) {
-            newData = setValueByPath(newData, key, updatedValues[key]);
-          }
-          return { ...file, data: newData };
+    updateProjectData(prev => {
+        const newFiles = prev.translationFiles.map(file => {
+            if (file.name === targetLang) {
+                let newData = { ...file.data };
+                for (const key in updatedValues) {
+                    newData = setValueByPath(newData, key, updatedValues[key]);
+                }
+                return { ...file, data: newData };
+            }
+            return file;
+        });
+        
+        const newHistory = { ...prev.translationHistory };
+        for (const key in updatedValues) {
+            const newHistoryForKey = { ...(newHistory[key] || {}), [targetLang]: updatedValues[key] };
+            newHistory[key] = newHistoryForKey;
         }
-        return file;
-      })
-    );
-
-    // Update history
-    setTranslationHistory(prevHistory => {
-      const newHistory = { ...prevHistory };
-      for (const key in updatedValues) {
-        const newHistoryForKey = { ...(newHistory[key] || {}), [targetLang]: updatedValues[key] };
-        newHistory[key] = newHistoryForKey;
-      }
-      return newHistory;
+        return { translationFiles: newFiles, translationHistory: newHistory };
     });
   };
 
 
   const handleUpdateContext = (key: string, newContext: string) => {
-    setContexts(prevContexts => {
-      const currentValue = getValueByPath(prevContexts, key);
-      if (currentValue === newContext) {
-        return prevContexts;
-      }
-      const newContexts = setValueByPath(prevContexts, key, newContext);
-      return newContexts;
+    updateProjectData(prev => {
+        const currentValue = getValueByPath(prev.contexts, key);
+        if (currentValue === newContext) return {}; // No change
+        const newContexts = setValueByPath(prev.contexts, key, newContext);
+        return { contexts: newContexts };
     });
   };
 
   const handleDownloadFiles = async () => {
-    if (translationFiles.length === 0) return;
+    if (!projectData) return;
 
     try {
       const zip = new JSZip();
 
-      translationFiles.forEach(file => {
+      projectData.translationFiles.forEach(file => {
         const jsonString = JSON.stringify(file.data, null, 2);
         zip.file(`${file.name}.json`, jsonString);
       });
 
-      if (Object.keys(contexts).length > 0) {
-        const contextString = JSON.stringify(contexts, null, 2);
-        zip.file('context.json', contextString);
-      }
-      
-      if (Object.keys(translationHistory).length > 0) {
-        const historyString = JSON.stringify(translationHistory, null, 2);
-        zip.file('history.json', historyString);
-      }
-
-      if (translationGroups.length > 0) {
-          const groupsString = JSON.stringify(translationGroups, null, 2);
-          zip.file('groups.json', groupsString);
-      }
-
-      if (globalContext) {
-        zip.file('global_context.txt', globalContext);
-      }
+      if (Object.keys(projectData.contexts).length > 0) zip.file('context.json', JSON.stringify(projectData.contexts, null, 2));
+      if (Object.keys(projectData.translationHistory).length > 0) zip.file('history.json', JSON.stringify(projectData.translationHistory, null, 2));
+      if (projectData.translationGroups.length > 0) zip.file('groups.json', JSON.stringify(projectData.translationGroups, null, 2));
+      if (Object.keys(projectData.glossary).length > 0) zip.file('glossary.json', JSON.stringify(projectData.glossary, null, 2));
+      if (projectData.globalContext) zip.file('global_context.txt', projectData.globalContext);
 
       const blob = await zip.generateAsync({ type: 'blob' });
       saveAs(blob, 'translations.zip');
@@ -249,42 +305,18 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartCreatingGroup = () => {
-      setGroupMode('create');
-      setSelectedGroupId(null);
-  };
-
-  const handleStartEditingGroup = (group: TranslationGroup) => {
-      setGroupMode('edit');
-      setSelectedGroupId(group.id);
-  };
-
-  const handleDeleteGroup = (groupId: string) => {
-      const updatedGroups = translationGroups.filter(g => g.id !== groupId);
-      setTranslationGroups(updatedGroups);
-      if (selectedGroupId === groupId) {
-          setSelectedGroupId(updatedGroups.length > 0 ? updatedGroups[0].id : null);
-      }
-  };
-
-  const handleSelectGroup = (groupId: string) => {
-      setSelectedGroupId(groupId);
-      setGroupMode('list');
-  };
-
-  const hasFiles = useMemo(() => translationFiles.length > 0, [translationFiles]);
-
-  const mainContent = () => {
+  const mainContent = (pData: ProjectData) => {
     switch (activeView) {
       case 'keys':
         return selectedKey ? (
           <TranslationView 
-              files={translationFiles}
+              files={pData.translationFiles}
               selectedKey={selectedKey}
               onUpdateValue={handleUpdateValueAndHistory}
-              context={getValueByPath(contexts, selectedKey) || ''}
+              context={getValueByPath(pData.contexts, selectedKey) || ''}
               onUpdateContext={(newContext) => handleUpdateContext(selectedKey, newContext)}
-              translationHistory={translationHistory}
+              translationHistory={pData.translationHistory}
+              glossary={pData.glossary}
           />
         ) : (
           <div className="flex items-center justify-center h-full bg-gray-800/30 rounded-lg m-8">
@@ -295,29 +327,31 @@ const App: React.FC = () => {
         return (
            <GroupsView
                 allKeys={allKeys}
-                files={translationFiles}
-                contexts={contexts}
-                translationHistory={translationHistory}
-                groups={translationGroups}
-                onUpdateGroups={setTranslationGroups}
+                files={pData.translationFiles}
+                contexts={pData.contexts}
+                translationHistory={pData.translationHistory}
+                groups={pData.translationGroups}
+                onUpdateGroups={(newGroups) => updateProjectData(() => ({ translationGroups: newGroups }))}
                 onUpdateValue={handleUpdateValueAndHistory}
                 onUpdateContext={handleUpdateContext}
                 groupMode={groupMode}
                 selectedGroupId={selectedGroupId}
                 onSetGroupMode={setGroupMode}
                 onSetSelectedGroupId={setSelectedGroupId}
+                glossary={pData.glossary}
             />
         );
       case 'bulk':
         return (
             <BulkTranslateView
                 allKeys={allKeys}
-                files={translationFiles}
-                contexts={contexts}
-                translationHistory={translationHistory}
+                files={pData.translationFiles}
+                contexts={pData.contexts}
+                translationHistory={pData.translationHistory}
                 onSave={handleSaveBulkTranslations}
-                globalContext={globalContext}
-                onUpdateGlobalContext={setGlobalContext}
+                globalContext={pData.globalContext}
+                onUpdateGlobalContext={(newContext) => updateProjectData(() => ({ globalContext: newContext }))}
+                onUpdateContext={handleUpdateContext}
             />
         );
       default:
@@ -329,91 +363,130 @@ const App: React.FC = () => {
     }
   };
 
+  if (isCheckingStorage) {
+      return <div className="flex items-center justify-center h-full text-gray-400">Loading Session...</div>;
+  }
 
   return (
-    <>
-      <div className="bg-gray-900 text-gray-200 flex flex-col h-full">
-          {!hasFiles ? (
+    <div className="bg-gray-900 text-gray-200 flex flex-col h-full">
+        {!projectData ? (
             <main className="flex-grow flex items-center justify-center p-4">
-              <div className="max-w-md w-full text-center">
-                <div className="flex items-center justify-center space-x-3 mb-6">
-                    <LogoIcon className="h-10 w-10 text-teal-400" />
-                    <h1 className="text-3xl font-bold text-gray-100">Translation AI Assistant</h1>
-                </div>
-                <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, and `groups.json`.</p>
-                <FileUploader onFilesUploaded={handleFilesUpload} />
-              </div>
-            </main>
-          ) : (
-            <div className="flex h-full w-full">
-              <aside className="w-96 flex-shrink-0 bg-gray-800/50 border-r border-gray-700 flex flex-col h-full">
-                <div className="p-4 border-b border-gray-700 flex-shrink-0 flex justify-between items-center">
-                    <div className="flex items-center space-x-3">
-                        <LogoIcon className="h-8 w-8 text-teal-400" />
-                        <h1 className="text-xl font-bold text-gray-100 truncate">Translation AI</h1>
+                <div className="max-w-xl w-full text-center">
+                    <div className="flex items-center justify-center space-x-3 mb-6">
+                        <LogoIcon className="h-10 w-10 text-teal-400" />
+                        <h1 className="text-3xl font-bold text-gray-100">Translation AI Assistant</h1>
                     </div>
+                    {initialDataFromStorage ? (
+                        <div className="bg-gray-800/50 p-6 rounded-lg border border-gray-700">
+                             <p className="text-gray-300 mb-2">A saved session was found.</p>
+                             <p className="text-xs text-gray-500 mb-4">Last updated: {new Date(initialDataFromStorage.lastUpdated).toLocaleString()}</p>
+                             <button onClick={handleContinueSession} className="w-full bg-teal-600 hover:bg-teal-500 text-white font-medium py-2 px-4 rounded-md mb-4">
+                                Continue Session
+                             </button>
+                             <div className="relative my-4">
+                                <div className="absolute inset-0 flex items-center" aria-hidden="true"><div className="w-full border-t border-gray-600" /></div>
+                                <div className="relative flex justify-center"><span className="bg-gray-800/50 px-2 text-sm text-gray-500">or</span></div>
+                             </div>
+                             <button onClick={handleStartNewProject} className="w-full flex items-center justify-center space-x-2 text-sm bg-indigo-600/80 hover:bg-indigo-600/90 text-white font-medium py-2 px-4 rounded-md">
+                                <UploadIcon className="w-5 h-5"/>
+                                <span>Import New Project</span>
+                             </button>
+                             <p className="text-xs text-gray-500 mt-2">This will clear your saved session.</p>
+                        </div>
+                    ) : (
+                        <div>
+                           <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, `groups.json`, and `glossary.json`.</p>
+                           <FileUploader onFilesUploaded={handleFilesUpload} />
+                        </div>
+                    )}
                 </div>
-                <div className="p-4 border-b border-gray-700 flex-shrink-0">
-                    <button
-                        onClick={handleDownloadFiles}
-                        className="w-full flex items-center justify-center space-x-2 text-sm bg-teal-600 hover:bg-teal-500 text-white font-medium py-2 px-4 rounded-md transition-colors duration-200"
-                    >
-                        <DownloadIcon className="w-5 h-5" />
-                        <span>Download ZIP</span>
-                    </button>
-                </div>
-                <div className="flex border-b border-gray-700 flex-shrink-0">
-                    <button
-                        onClick={() => setActiveView('keys')}
-                        title="View by Key"
-                        className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'keys' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
-                    >
-                        <ListBulletIcon className="w-5 h-5" />
-                        <span>Keys</span>
-                    </button>
-                     <button
-                        onClick={() => setActiveView('groups')}
-                        title="View by Group"
-                        className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'groups' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
-                    >
-                        <CollectionIcon className="w-5 h-5" />
-                        <span>Groups</span>
-                    </button>
-                    <button
-                        onClick={() => setActiveView('bulk')}
-                        title="Bulk Translate"
-                        className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'bulk' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
-                    >
-                        <LanguageIcon className="w-5 h-5" />
-                        <span>Bulk</span>
-                    </button>
-                </div>
+            </main>
+        ) : (
+            <>
+                <GlossaryModal
+                    isOpen={isGlossaryModalOpen}
+                    onClose={() => setIsGlossaryModalOpen(false)}
+                    glossary={projectData.glossary}
+                    onUpdateGlossary={(newGlossary) => updateProjectData(() => ({ glossary: newGlossary }))}
+                    languages={projectData.translationFiles.map(f => f.name)}
+                />
+                <div className="flex h-full w-full">
+                <aside className="w-96 flex-shrink-0 bg-gray-800/50 border-r border-gray-700 flex flex-col h-full">
+                    <div className="p-4 border-b border-gray-700 flex-shrink-0 flex justify-between items-center">
+                        <div className="flex items-center space-x-3">
+                            <LogoIcon className="h-8 w-8 text-teal-400" />
+                            <h1 className="text-xl font-bold text-gray-100 truncate">Translation AI</h1>
+                        </div>
+                    </div>
+                    <div className="p-4 border-b border-gray-700 flex-shrink-0 grid grid-cols-2 gap-2">
+                        <button
+                            onClick={handleDownloadFiles}
+                            className="w-full flex items-center justify-center space-x-2 text-sm bg-teal-600 hover:bg-teal-500 text-white font-medium py-2 px-3 rounded-md transition-colors duration-200"
+                        >
+                            <DownloadIcon className="w-5 h-5" />
+                            <span>Download</span>
+                        </button>
+                        <button
+                            onClick={() => setIsGlossaryModalOpen(true)}
+                            className="w-full flex items-center justify-center space-x-2 text-sm bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-3 rounded-md transition-colors duration-200"
+                        >
+                            <BookOpenIcon className="w-5 h-5" />
+                            <span>Glossary</span>
+                        </button>
+                    </div>
+                    <div className="flex border-b border-gray-700 flex-shrink-0">
+                        <button
+                            onClick={() => setActiveView('keys')} title="View by Key"
+                            className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'keys' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
+                        >
+                            <ListBulletIcon className="w-5 h-5" />
+                            <span>Keys</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveView('groups')} title="View by Group"
+                            className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'groups' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
+                        >
+                            <CollectionIcon className="w-5 h-5" />
+                            <span>Groups</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveView('bulk')} title="Bulk Translate"
+                            className={`flex-1 flex items-center justify-center space-x-2 p-3 text-sm font-medium transition-colors ${activeView === 'bulk' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}
+                        >
+                            <LanguageIcon className="w-5 h-5" />
+                            <span>Bulk</span>
+                        </button>
+                    </div>
 
-                {activeView === 'keys' ? (
-                  <TranslationKeyList 
-                    keys={allKeys} 
-                    onSelectKey={setSelectedKey}
-                    selectedKey={selectedKey}
-                    translationFiles={translationFiles}
-                  />
-                ) : activeView === 'groups' ? (
-                  <GroupListPanel
-                    groups={translationGroups}
-                    selectedGroupId={selectedGroupId}
-                    onSelectGroup={handleSelectGroup}
-                    onStartCreating={handleStartCreatingGroup}
-                    onStartEditing={handleStartEditingGroup}
-                    onDeleteGroup={handleDeleteGroup}
-                  />
-                ) : null}
-              </aside>
-              <main className="flex-1 overflow-hidden">
-                {mainContent()}
-              </main>
-            </div>
-          )}
-      </div>
-    </>
+                    {activeView === 'keys' ? (
+                    <TranslationKeyList 
+                        keys={allKeys} 
+                        onSelectKey={setSelectedKey}
+                        selectedKey={selectedKey}
+                        translationFiles={projectData.translationFiles}
+                    />
+                    ) : activeView === 'groups' ? (
+                    <GroupListPanel
+                        groups={projectData.translationGroups}
+                        selectedGroupId={selectedGroupId}
+                        onSelectGroup={(id) => { setSelectedGroupId(id); setGroupMode('list'); }}
+                        onStartCreating={() => { setGroupMode('create'); setSelectedGroupId(null); }}
+                        onStartEditing={(group) => { setGroupMode('edit'); setSelectedGroupId(group.id); }}
+                        onDeleteGroup={(id) => {
+                            const updated = projectData.translationGroups.filter(g => g.id !== id);
+                            updateProjectData(() => ({ translationGroups: updated }));
+                            if (selectedGroupId === id) setSelectedGroupId(updated.length > 0 ? updated[0].id : null);
+                        }}
+                    />
+                    ) : null}
+                </aside>
+                <main className="flex-1 overflow-hidden">
+                    {mainContent(projectData)}
+                </main>
+                </div>
+            </>
+        )}
+    </div>
   );
 };
 

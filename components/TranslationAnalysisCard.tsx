@@ -1,6 +1,4 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-// FIX: Add Glossary to the type imports.
 import type { TranslationFile, AIAnalysisResult, AnalysisItem, TranslationHistory, Glossary } from '../types';
 import { getValueByPath, getLineNumber } from '../services/translationService';
 import { analyzeTranslations, generateContextForKey, buildAnalysisPrompt, buildGenerateContextPrompt } from '../services/aiService';
@@ -25,7 +23,6 @@ interface TranslationAnalysisCardProps {
   isCollapsed?: boolean;
   onToggleCollapse?: (key: string) => void;
   groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[];
-  // FIX: Add optional glossary prop.
   glossary?: Glossary;
 }
 
@@ -186,7 +183,6 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
       isCollapsed = false,
       onToggleCollapse,
       groupReferenceTranslations,
-      // FIX: Destructure glossary from props.
       glossary,
   } = props;
   
@@ -302,7 +298,6 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
         .filter(f => f.name !== polishFile.name && f.name !== englishFile?.name)
         .map(f => ({ lang: f.name, value: String(getValueByPath(f.data, translationKey) || ''), }));
     
-    // FIX: Pass glossary to buildAnalysisPrompt.
     const prompt = buildAnalysisPrompt(translationKey, localContext, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations, glossary);
     setGeneratedPrompt(prompt);
     setIsPromptModalOpen(true);
@@ -345,7 +340,6 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
         }));
 
     try {
-        // FIX: Pass glossary to analyzeTranslations.
         const result = await analyzeTranslations(
             translationKey,
             localContext, 

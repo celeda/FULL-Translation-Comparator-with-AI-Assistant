@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 // FIX: Import Glossary type.
 import type { AIAnalysisResult, TranslationHistory, Glossary } from '../types';
@@ -198,7 +197,7 @@ export const buildGenerateContextPrompt = (
     .map(t => `- Language: ${t.lang}, Translation: "${t.value}"`)
     .join('\n');
 
-  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzjyjnego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza i jego istniejących wartości, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
+  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzyzyjnego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza i jego istniejących wartości, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
 
 Klucz: "${translationKey}"
 

@@ -1,6 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-// FIX: Import Glossary type.
-import type { AIAnalysisResult, TranslationHistory, Glossary } from '../types';
+import type { AIAnalysisResult, TranslationHistory, AnalysisItem } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
@@ -27,9 +26,11 @@ const analysisSchema = {
   required: ["analysis"]
 };
 
-const polishFileFinder = (f: { name: string }) => f.name.toLowerCase().includes('pl') || f.name.toLowerCase().includes('polish');
+const polishFileFinder = (f: { name: string }) => {
+    const lowerName = f.name.toLowerCase();
+    return lowerName === 'pl' || lowerName === 'polish';
+};
 
-// FIX: Add optional glossary parameter to provide more context to the AI.
 export const buildAnalysisPrompt = (
   translationKey: string,
   context: string,
@@ -38,11 +39,9 @@ export const buildAnalysisPrompt = (
   translationsToReview: { lang: string; value: string }[],
   translationHistory: TranslationHistory,
   groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[],
-  glossary?: Glossary
+  globalContext?: string,
 ): string => {
     const allTranslationsToAnalyze = [
-        polishTranslation,
-        ...(englishTranslation ? [englishTranslation] : []),
         ...translationsToReview
     ];
 
@@ -80,48 +79,39 @@ ${historyEntries}
         }
     }
     
-    // FIX: Add glossary section to the prompt.
-    let glossaryString = "";
-    if (glossary && Object.keys(glossary).length > 0) {
-        const glossaryEntries = Object.entries(glossary).map(([term, translations]) => {
-            const translationList = Object.entries(translations).map(([lang, value]) => `${lang}: "${value}"`).join(', ');
-            return `- Termin '${term}' musi być tłumaczony spójnie: ${translationList}`;
-        }).join('\n');
-
-        glossaryString = `
-**Globalny Glosariusz (PRIORYTET WYSOKI):**
-Poniższe terminy mają zdefiniowane, stałe tłumaczenia. Stosuj się do nich bezwzględnie.
-${glossaryEntries}
+    let globalContextString = "";
+    if (globalContext) {
+        globalContextString = `
+**Kontekst Globalny Aplikacji:**
+${globalContext}
 `;
     }
 
-    // FIX: Update prompt structure to include glossary and adjust priority.
     const prompt = `Jesteś światowej klasy ekspertem lingwistycznym, specjalizującym się w lokalizacji oprogramowania. Twoja praca wymaga absolutnej precyzji. Twoje odpowiedzi (w polach 'feedback' i 'suggestion') MUSZĄ być w języku polskim.
 
 **KRYTYCZNE INSTRUKCJE ZADANIA (NAJWYŻSZY PRIORYTET):**
 1.  **ABSOLUTNE ŹRÓDŁO PRAWDY:** Tłumaczenie w języku polskim (PL) jest **jedynym i ostatecznym** punktem odniesienia. Wszystkie inne tłumaczenia muszą być oceniane **WYŁĄCZNIE** pod kątem zgodności z wersją polską pod względem znaczenia, tonu i kontekstu.
 2.  **ROLA JĘZYKA ANGIELSKIEGO:** Tłumaczenie angielskie (EN) służy **jedynie jako dodatkowy kontekst**, ale **NIGDY** nie może być traktowane jako wzorzec, jeśli jest niezgodne z wersją polską.
 3.  **ZAKAZ INNYCH REFERENCJI:** Pod żadnym pozorem nie używaj żadnego innego języka (np. włoskiego) jako punktu odniesienia. Jest to **błąd krytyczny**.
-4.  **WERYFIKACJA ŹRÓDŁA:** Sprawdź również samo tłumaczenie polskie i angielskie pod kątem błędów gramatycznych, literówek czy niezręczności stylistycznych. Jeśli zauważysz problem, wskaż go w ocenie dla danego języka i zasugeruj poprawkę.
 
 Obowiązuje następująca hierarchia ważności informacji (od najważniejszej):
 1.  **Wzorce Kontekstowe Grupy**
 2.  **Historia Zmian**
-3.  **Globalny Glosariusz**
-4.  **Źródło Prawdy (Polski)**
-5.  **Kontekst Ogólny**
+3.  **Źródło Prawdy (Polski)**
+4.  **Kontekst Globalny Aplikacji**
+5.  **Kontekst Klucza**
 
 ${groupReferenceString}
 ${historyContextString}
-${glossaryString}
+${globalContextString}
+
+**Kontekst Klucza:** "${context}"
 
 **ABSOLUTNE ŹRÓDŁO PRAWDY (POLSKI - ${polishTranslation.lang}):**
 "${polishTranslation.value}"
 
 **DODATKOWY PUNKT ODNIESIENIA (ANGIELSKI - ${englishTranslation?.lang || 'N/A'}):**
 "${englishTranslation?.value || 'N/A'}"
-
-**Kontekst Ogólny:** "${context}"
 
 **Zadanie:**
 Dla każdego tłumaczenia z listy poniżej, wykonaj rygorystyczną ocenę, ściśle trzymając się podanych instrukcji.
@@ -134,12 +124,12 @@ Dla każdego tłumaczenia z listy poniżej, wykonaj rygorystyczną ocenę, ści�
 **Tłumaczenia do oceny:**
 ${translationsString}
 
-Zwróć odpowiedź w ustrukturyzowanym formacie JSON, zgodnie z podanym schematem.`;
+Zwróć odpowiedź w ustrukturyzowanym formacie JSON, zgodnie z podanym schematem. Odpowiedź musi zawierać tylko jeden element w tablicy 'analysis' dla języka docelowego.`;
 
     return prompt;
 };
 
-// FIX: Add optional glossary parameter to match buildAnalysisPrompt.
+
 export const analyzeTranslations = async (
   translationKey: string,
   context: string,
@@ -148,12 +138,12 @@ export const analyzeTranslations = async (
   translationsToReview: { lang: string; value: string }[],
   translationHistory: TranslationHistory,
   groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[],
-  glossary?: Glossary
+  globalContext?: string,
 ): Promise<AIAnalysisResult> => {
   
   const prompt = buildAnalysisPrompt(
     translationKey, context, polishTranslation, englishTranslation, translationsToReview,
-    translationHistory, groupReferenceTranslations, glossary
+    translationHistory, groupReferenceTranslations, globalContext
   );
 
   try {
@@ -192,17 +182,46 @@ export const analyzeTranslations = async (
 export const buildGenerateContextPrompt = (
   translationKey: string,
   translations: { lang: string; value: string }[],
+  history: TranslationHistory,
+  globalContext: string
 ): string => {
   const translationsString = translations
     .map(t => `- Language: ${t.lang}, Translation: "${t.value}"`)
     .join('\n');
 
-  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzyzyjnego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza i jego istniejących wartości, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
+  let historyContextString = "";
+  if (history && history[translationKey]) {
+      const keyHistory = history[translationKey];
+      const historyEntries = Object.entries(keyHistory)
+      .map(([lang, value]) => `- Język '${lang}': zatwierdzona wersja to "${value}".`)
+      .join('\n');
+      
+      if (historyEntries) {
+      historyContextString = `
+**Historia Zmian (Dodatkowy Kontekst):**
+Dla tego klucza, użytkownik wcześniej zatwierdził poniższe wersje, co może dać wskazówkę co do jego zastosowania:
+${historyEntries}
+`;
+      }
+  }
+
+  let globalContextString = "";
+  if (globalContext) {
+      globalContextString = `
+**Kontekst Globalny Aplikacji (Dodatkowy Kontekst):**
+Poniżej znajduje się ogólny opis aplikacji, w której używany jest ten tekst:
+"${globalContext}"
+`;
+  }
+
+  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzyjnego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza, jego istniejących wartości oraz dodatkowych informacji, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
 
 Klucz: "${translationKey}"
 
 Istniejące Tłumaczenia:
 ${translationsString}
+${globalContextString}
+${historyContextString}
 
 Sugerowany Kontekst (odpowiedz TYLKO I WYŁĄCZNIE sugerowanym tekstem opisu, bez żadnych dodatkowych wstępów, formatowania markdown, cudzysłowów czy nagłówków typu "Sugerowany Kontekst:"):`;
   
@@ -212,10 +231,12 @@ Sugerowany Kontekst (odpowiedz TYLKO I WYŁĄCZNIE sugerowanym tekstem opisu, be
 
 export const generateContextForKey = async (
   translationKey: string,
-  translations: { lang: string; value: string }[]
+  translations: { lang: string; value: string }[],
+  history: TranslationHistory,
+  globalContext: string
 ): Promise<string> => {
   
-  const prompt = buildGenerateContextPrompt(translationKey, translations);
+  const prompt = buildGenerateContextPrompt(translationKey, translations, history, globalContext);
 
   try {
     const response = await ai.models.generateContent({
@@ -242,125 +263,106 @@ export const generateContextForKey = async (
 };
 
 
-const bulkTranslateSchema = {
-    type: Type.OBJECT,
-    properties: {
-        translations: {
-            type: Type.ARRAY,
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    key: { type: Type.STRING },
-                    suggestion: { type: Type.STRING }
-                },
-                required: ["key", "suggestion"]
-            }
-        }
-    },
-    required: ["translations"]
-};
+const buildReviewPolishPrompt = (
+    key: string,
+    polishValue: string,
+    englishValue: string,
+    context: string,
+    globalContext: string,
+): string => {
 
-const buildBulkTranslatePrompt = (
-    keysToTranslate: { key: string, pl: string, en: string, context: string, currentValue: string }[],
-    targetLang: string,
-    history: TranslationHistory,
-    globalContext: string
-) => {
-    
-    const historyString = Object.entries(history)
-        .map(([key, translations]) => {
-            const approvedTranslation = translations[targetLang];
-            if (approvedTranslation) {
-                return `- Klucz '${key}': zatwierdzona wersja to "${approvedTranslation}".`;
-            }
-            return null;
-        })
-        .filter(Boolean)
-        .join('\n');
-        
-    const keysString = keysToTranslate.map(k => 
-`
-- Key: "${k.key}"
-  Polish (Source of Truth): "${k.pl}"
-  English (Reference): "${k.en}"
-  Context for this key: "${k.context || 'Brak'}"
-  Current Value: "${k.currentValue || '(empty)'}"
-`
-    ).join('');
-
-    return `Jesteś ekspertem od lokalizacji oprogramowania. Twoim zadaniem jest przetłumaczenie grupy kluczy na język docelowy: **${targetLang}**.
+    return `Jesteś ekspertem od polskiego copywritingu technicznego. Twoim zadaniem jest ocena jakości tłumaczenia **z języka angielskiego na polski**.
 
 **Kontekst Globalny Aplikacji:**
-${globalContext || "Brak ogólnego kontekstu. Skup się na poszczególnych kluczach."}
+${globalContext || "Brak"}
 
-**KRYTYCZNE ZASADY (NAJWYŻSZY PRIORYTET):**
-1.  **Źródło Prawdy:** Język **polski** jest absolutnym źródłem prawdy dla znaczenia.
-2.  **Kontekst Pomocniczy:** Język **angielski** oraz kontekst dla klucza służą jako dodatkowy kontekst.
-3.  **Spójność:** Zachowaj absolutną spójność terminologii i stylu we wszystkich tłumaczeniach w tej grupie. Jeśli słowo "Zapisz" w jednym kluczu jest tłumaczone jako "Save", w innym kluczu nie może być "Store". Ta spójność jest kluczowa.
-4.  **Historia:** Poniżej znajduje się lista wcześniej zatwierdzonych przez człowieka tłumaczeń. Mają one wysoki priorytet.
-5.  **Format Wyjściowy:** Zwróć **TYLKO I WYŁĄCZNIE** obiekt JSON. Nie dołączaj żadnego dodatkowego tekstu ani formatowania markdown.
+**Kontekst dla tego klucza:**
+${context || "Brak"}
 
-**Zatwierdzona historia dla języka ${targetLang} (PRIORYTET WYSOKI):**
-${historyString || "Brak historii dla tego języka."}
+**Klucz:**
+\`${key}\`
 
-**Klucze do przetłumaczenia:**
-${keysString}
+**Wartość Angielska (Referencja):**
+"${englishValue}"
 
-Na podstawie powyższych danych, wygeneruj tłumaczenia dla każdego klucza na język **${targetLang}**. Zwróć wynik jako obiekt JSON zgodny z podanym schematem.
+**Wartość Polska (do Oceny):**
+"${polishValue}"
+
+**Zadanie:**
+Oceń polskie tłumaczenie pod kątem:
+1.  **Poprawności gramatycznej i ortograficznej.**
+2.  **Zgodności znaczeniowej z wersją angielską.**
+3.  **Naturalności i płynności brzmienia (czy nie jest to "kalka" z angielskiego).**
+
+**Format odpowiedzi:**
+Zwróć odpowiedź jako pojedynczy obiekt JSON w tablicy 'analysis', zgodnie z podanym schematem. W polach 'feedback' i 'suggestion' używaj języka polskiego.
+- **'evaluation'**: 'Good', 'Needs Improvement', lub 'Incorrect'.
+- **'feedback'**: Zwięzłe uzasadnienie oceny.
+- **'suggestion'**: Jeśli widzisz pole do poprawy, podaj **tylko i wyłącznie** sugerowany tekst. W przeciwnym razie pomiń to pole.
 `;
-}
+};
 
-export const bulkTranslateKeys = async (
-    keysToTranslate: { key: string, pl: string, en: string, context: string, currentValue: string }[],
+
+export const analyzeKeyForLanguage = async (
+    key: string,
     targetLang: string,
+    allValues: Record<string, { lang: string, value: string }>,
+    context: string,
     history: TranslationHistory,
     globalContext: string,
-    onProgress: (progress: { current: number, total: number }) => void
-): Promise<{ key: string, suggestion: string }[]> => {
-    const CHUNK_SIZE = 10; // Process 10 keys per API call
-    const DELAY_MS = 1000; // 1-second delay between chunks to avoid rate limits
-    const totalKeys = keysToTranslate.length;
-    let processedCount = 0;
-    const allSuggestions: { key: string, suggestion: string }[] = [];
+): Promise<AnalysisItem | null> => {
+    
+    const polishFile = Object.values(allValues).find(v => polishFileFinder({ name: v.lang }));
+    if (!polishFile) throw new Error("Polish source file not found for analysis.");
+    
+    const englishFile = Object.values(allValues).find(v => v.lang.toLowerCase() === 'en' || v.lang.toLowerCase() === 'english');
+    const targetFile = allValues[targetLang];
 
-    for (let i = 0; i < totalKeys; i += CHUNK_SIZE) {
-        const chunk = keysToTranslate.slice(i, i + CHUNK_SIZE);
-        const prompt = buildBulkTranslatePrompt(chunk, targetLang, history, globalContext);
+    if (!targetFile) return null;
 
-        try {
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: bulkTranslateSchema,
-                }
-            });
-
-            const jsonText = response.text.trim();
-            const cleanJsonText = jsonText.replace(/^```json\s*|```$/g, '');
-            const parsed = JSON.parse(cleanJsonText);
-            
-            if (parsed.translations && Array.isArray(parsed.translations)) {
-                allSuggestions.push(...parsed.translations);
-            }
-            
-        } catch (error) {
-            console.error(`Error processing chunk ${i / CHUNK_SIZE + 1}:`, error);
-            // Optionally, re-throw or handle the error for the entire process
-            const errorMessage = String(error);
-             if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
-                throw new Error(`AI translation failed on a batch: You have exceeded your request quota. Please wait a moment and try again. (${chunk.length} keys in this batch were not translated).`);
-            }
-        }
-
-        processedCount += chunk.length;
-        onProgress({ current: processedCount, total: totalKeys });
-
-        if (i + CHUNK_SIZE < totalKeys) {
-            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
-        }
+    let prompt: string;
+    
+    if (polishFileFinder({ name: targetLang })) {
+        // We are reviewing the Polish source itself
+        prompt = buildReviewPolishPrompt(key, polishFile.value, englishFile?.value || '', context, globalContext);
+    } else {
+        // We are analyzing a target language against the Polish source
+        prompt = buildAnalysisPrompt(
+            key, context, polishFile, englishFile || null, [{ lang: targetFile.lang, value: targetFile.value }],
+            history, undefined, globalContext
+        );
     }
 
-    return allSuggestions;
+    try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: analysisSchema,
+          },
+        });
+
+        const jsonText = response.text.trim();
+        const cleanJsonText = jsonText.replace(/^```json\s*|```$/g, '');
+        const parsed = JSON.parse(cleanJsonText) as AIAnalysisResult;
+
+        if (parsed.analysis && parsed.analysis.length > 0) {
+            return parsed.analysis[0];
+        }
+        return null;
+
+    } catch (error) {
+        console.error(`Error analyzing key "${key}" for lang "${targetLang}":`, error);
+        const errorMessage = String(error);
+        if (errorMessage.toLowerCase().includes("api key not valid")) {
+            throw new Error("AI analysis failed: The provided API key is not valid.");
+        }
+        // Return a structured error to be displayed in the UI
+        return {
+            language: targetLang,
+            evaluation: 'Incorrect',
+            feedback: `AI analysis failed. Error: ${errorMessage}`,
+        };
+    }
 };

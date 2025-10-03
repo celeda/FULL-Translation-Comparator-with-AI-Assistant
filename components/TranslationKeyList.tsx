@@ -1,6 +1,5 @@
-
-import React, { useState, useMemo, useEffect } from 'react';
-import { SearchIcon } from './Icons';
+import React, { useState, useMemo } from 'react';
+import { SearchIcon, ClipboardIcon, CheckIcon } from './Icons';
 import type { TranslationFile } from '../types';
 import { getValueByPath } from '../services/translationService';
 
@@ -13,12 +12,7 @@ interface TranslationKeyListProps {
 
 export const TranslationKeyList: React.FC<TranslationKeyListProps> = ({ keys, selectedKey, onSelectKey, translationFiles }) => {
   const [searchTerm, setSearchTerm] = useState('');
-
-  useEffect(() => {
-    if (selectedKey) {
-      setSearchTerm(selectedKey);
-    }
-  }, [selectedKey]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const filteredKeys = useMemo(() => {
     if (!searchTerm) return keys;
@@ -42,6 +36,14 @@ export const TranslationKeyList: React.FC<TranslationKeyListProps> = ({ keys, se
       return false;
     });
   }, [keys, searchTerm, translationFiles]);
+  
+  const handleCopyKey = (key: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent selection when copying
+    navigator.clipboard.writeText(key).then(() => {
+        setCopiedKey(key);
+        setTimeout(() => setCopiedKey(null), 2000);
+    });
+  };
 
   return (
     <div className="flex flex-col flex-grow min-h-0">
@@ -66,13 +68,24 @@ export const TranslationKeyList: React.FC<TranslationKeyListProps> = ({ keys, se
               <li key={key}>
                 <button
                   onClick={() => onSelectKey(key)}
-                  className={`w-full text-left px-4 py-2 text-sm transition-colors duration-150 ${
+                  className={`w-full text-left px-4 py-2 text-sm transition-colors duration-150 group flex justify-between items-center ${
                     selectedKey === key
                       ? 'bg-teal-500/20 text-teal-300 font-semibold'
                       : 'text-gray-300 hover:bg-gray-700/50'
                   }`}
                 >
-                  {key}
+                    <span className="truncate pr-2">{key}</span>
+                    <button
+                        onClick={(e) => handleCopyKey(key, e)}
+                        className="p-1 rounded-md text-gray-400 hover:text-white transition-opacity opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0"
+                        title="Copy key"
+                    >
+                        {copiedKey === key ? (
+                            <CheckIcon className="w-4 h-4 text-green-400" />
+                        ) : (
+                            <ClipboardIcon className="w-4 h-4" />
+                        )}
+                    </button>
                 </button>
               </li>
             ))}

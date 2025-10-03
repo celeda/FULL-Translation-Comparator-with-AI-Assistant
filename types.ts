@@ -21,10 +21,8 @@ export interface AIAnalysisResult {
 export type TranslationHistory = Record<string, Record<string, string>>;
 
 // FIX: Add Glossary type definition.
-// Represents a multi-language glossary.
-// The top-level key is the source term (e.g., in a base language like Polish).
-// The nested object contains translations for that term, keyed by language code.
-// Example: { "Zapisz": { "en": "Save", "de": "Speichern" } }
+// The glossary stores source terms and their translations.
+// Example: { "Application": { "pl": "Aplikacja", "de": "Anwendung" } }
 export type Glossary = Record<string, Record<string, string>>;
 
 export interface TranslationGroup {

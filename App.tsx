@@ -1,13 +1,11 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import type { TranslationFile, TranslationHistory, TranslationGroup, Glossary } from './types';
+import type { TranslationFile, TranslationHistory, TranslationGroup } from './types';
 import { flattenObjectKeys, setValueByPath, getValueByPath } from './services/translationService';
 import { FileUploader } from './components/FileUploader';
 import { TranslationKeyList } from './components/TranslationKeyList';
 import { TranslationView } from './components/TranslationView';
 import { GroupsView } from './components/GroupsView';
 import { BulkTranslateView } from './components/BulkTranslateView';
-import { GlossaryModal } from './components/GlossaryModal';
 import { LogoIcon, DownloadIcon, ListBulletIcon, CollectionIcon, PlusCircleIcon, EditIcon, TrashIcon, LanguageIcon, SearchIcon, BookOpenIcon, UploadIcon } from './components/Icons';
 
 // Declare JSZip and saveAs for TypeScript since they are loaded from script tags
@@ -22,7 +20,6 @@ interface ProjectData {
     contexts: Record<string, any>;
     translationHistory: TranslationHistory;
     translationGroups: TranslationGroup[];
-    glossary: Glossary;
     globalContext: string;
     lastUpdated: string;
 }
@@ -110,7 +107,6 @@ const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ActiveView>('keys');
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [groupMode, setGroupMode] = useState<GroupMode>('list');
-  const [isGlossaryModalOpen, setIsGlossaryModalOpen] = useState(false);
   
   // Load from localStorage on initial mount
   useEffect(() => {
@@ -166,7 +162,6 @@ const App: React.FC = () => {
       contexts: Record<string, string>, 
       history: TranslationHistory, 
       groups: TranslationGroup[],
-      glossary: Glossary,
       globalContext: string 
   }) => {
     const newProjectData: ProjectData = {
@@ -174,7 +169,6 @@ const App: React.FC = () => {
         contexts: uploadResult.contexts,
         translationHistory: uploadResult.history,
         translationGroups: uploadResult.groups,
-        glossary: uploadResult.glossary,
         globalContext: uploadResult.globalContext,
         lastUpdated: new Date().toISOString()
     };
@@ -244,31 +238,38 @@ const App: React.FC = () => {
     });
   };
 
-   const handleSaveBulkTranslations = (
-    targetLang: string, 
-    updatedValues: Record<string, string>
-  ) => {
+  const handleSaveBulkTranslations = (updatedValuesByLang: Record<string, Record<string, string>>) => {
     updateProjectData(prev => {
-        const newFiles = prev.translationFiles.map(file => {
-            if (file.name === targetLang) {
-                let newData = { ...file.data };
+        const newHistory = { ...prev.translationHistory };
+        const langFileMap = new Map(prev.translationFiles.map(f => [f.name, { ...f.data }]));
+
+        for (const lang in updatedValuesByLang) {
+            if (langFileMap.has(lang)) {
+                const updatedValues = updatedValuesByLang[lang];
+                let currentLangData = langFileMap.get(lang)!;
+                
                 for (const key in updatedValues) {
-                    newData = setValueByPath(newData, key, updatedValues[key]);
+                    const newValue = updatedValues[key];
+                    currentLangData = setValueByPath(currentLangData, key, newValue);
+                    
+                    // Update history as well
+                    const newHistoryForKey = { ...(newHistory[key] || {}), [lang]: newValue };
+                    newHistory[key] = newHistoryForKey;
                 }
-                return { ...file, data: newData };
+                langFileMap.set(lang, currentLangData);
+            }
+        }
+
+        const newFiles = prev.translationFiles.map(file => {
+            if (langFileMap.has(file.name)) {
+                return { ...file, data: langFileMap.get(file.name)! };
             }
             return file;
         });
         
-        const newHistory = { ...prev.translationHistory };
-        for (const key in updatedValues) {
-            const newHistoryForKey = { ...(newHistory[key] || {}), [targetLang]: updatedValues[key] };
-            newHistory[key] = newHistoryForKey;
-        }
         return { translationFiles: newFiles, translationHistory: newHistory };
     });
   };
-
 
   const handleUpdateContext = (key: string, newContext: string) => {
     updateProjectData(prev => {
@@ -293,7 +294,6 @@ const App: React.FC = () => {
       if (Object.keys(projectData.contexts).length > 0) zip.file('context.json', JSON.stringify(projectData.contexts, null, 2));
       if (Object.keys(projectData.translationHistory).length > 0) zip.file('history.json', JSON.stringify(projectData.translationHistory, null, 2));
       if (projectData.translationGroups.length > 0) zip.file('groups.json', JSON.stringify(projectData.translationGroups, null, 2));
-      if (Object.keys(projectData.glossary).length > 0) zip.file('glossary.json', JSON.stringify(projectData.glossary, null, 2));
       if (projectData.globalContext) zip.file('global_context.txt', projectData.globalContext);
 
       const blob = await zip.generateAsync({ type: 'blob' });
@@ -316,7 +316,7 @@ const App: React.FC = () => {
               context={getValueByPath(pData.contexts, selectedKey) || ''}
               onUpdateContext={(newContext) => handleUpdateContext(selectedKey, newContext)}
               translationHistory={pData.translationHistory}
-              glossary={pData.glossary}
+              globalContext={pData.globalContext}
           />
         ) : (
           <div className="flex items-center justify-center h-full bg-gray-800/30 rounded-lg m-8">
@@ -338,7 +338,7 @@ const App: React.FC = () => {
                 selectedGroupId={selectedGroupId}
                 onSetGroupMode={setGroupMode}
                 onSetSelectedGroupId={setSelectedGroupId}
-                glossary={pData.glossary}
+                globalContext={pData.globalContext}
             />
         );
       case 'bulk':
@@ -395,7 +395,7 @@ const App: React.FC = () => {
                         </div>
                     ) : (
                         <div>
-                           <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, `groups.json`, and `glossary.json`.</p>
+                           <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, and `groups.json`.</p>
                            <FileUploader onFilesUploaded={handleFilesUpload} />
                         </div>
                     )}
@@ -403,13 +403,6 @@ const App: React.FC = () => {
             </main>
         ) : (
             <>
-                <GlossaryModal
-                    isOpen={isGlossaryModalOpen}
-                    onClose={() => setIsGlossaryModalOpen(false)}
-                    glossary={projectData.glossary}
-                    onUpdateGlossary={(newGlossary) => updateProjectData(() => ({ glossary: newGlossary }))}
-                    languages={projectData.translationFiles.map(f => f.name)}
-                />
                 <div className="flex h-full w-full">
                 <aside className="w-96 flex-shrink-0 bg-gray-800/50 border-r border-gray-700 flex flex-col h-full">
                     <div className="p-4 border-b border-gray-700 flex-shrink-0 flex justify-between items-center">
@@ -418,20 +411,13 @@ const App: React.FC = () => {
                             <h1 className="text-xl font-bold text-gray-100 truncate">Translation AI</h1>
                         </div>
                     </div>
-                    <div className="p-4 border-b border-gray-700 flex-shrink-0 grid grid-cols-2 gap-2">
+                    <div className="p-4 border-b border-gray-700 flex-shrink-0">
                         <button
                             onClick={handleDownloadFiles}
                             className="w-full flex items-center justify-center space-x-2 text-sm bg-teal-600 hover:bg-teal-500 text-white font-medium py-2 px-3 rounded-md transition-colors duration-200"
                         >
                             <DownloadIcon className="w-5 h-5" />
-                            <span>Download</span>
-                        </button>
-                        <button
-                            onClick={() => setIsGlossaryModalOpen(true)}
-                            className="w-full flex items-center justify-center space-x-2 text-sm bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-3 rounded-md transition-colors duration-200"
-                        >
-                            <BookOpenIcon className="w-5 h-5" />
-                            <span>Glossary</span>
+                            <span>Download Project</span>
                         </button>
                     </div>
                     <div className="flex border-b border-gray-700 flex-shrink-0">

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import type { TranslationFile, AIAnalysisResult, AnalysisItem, TranslationHistory, Glossary } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import type { TranslationFile, AIAnalysisResult, TranslationHistory } from '../types';
 import { getValueByPath, getLineNumber } from '../services/translationService';
 import { analyzeTranslations, generateContextForKey, buildAnalysisPrompt, buildGenerateContextPrompt } from '../services/aiService';
-import { CheckIcon, EditIcon, ClipboardIcon, SparklesIcon, PanelOpenIcon, PanelCloseIcon, BoltIcon, PlusCircleIcon, LightBulbIcon, CloseIcon, CodeBracketIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
+import { CheckIcon, EditIcon, ClipboardIcon, SparklesIcon, PanelOpenIcon, PanelCloseIcon, BoltIcon, LightBulbIcon, CodeBracketIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
 import { JsonFileViewer } from './JsonFileViewer';
-import { MarkdownRenderer } from './MarkdownRenderer';
 import { PromptViewerModal } from './PromptViewerModal';
+import { AnalysisResultDisplay } from './AnalysisResultDisplay';
 
 
 interface TranslationAnalysisCardProps {
@@ -23,7 +23,7 @@ interface TranslationAnalysisCardProps {
   isCollapsed?: boolean;
   onToggleCollapse?: (key: string) => void;
   groupReferenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[];
-  glossary?: Glossary;
+  globalContext?: string;
 }
 
 interface ValueDisplayProps {
@@ -146,16 +146,6 @@ const ValueDisplay: React.FC<ValueDisplayProps> = ({ value, onSave }) => {
     );
 };
 
-const EvaluationBadge: React.FC<{ evaluation: 'Good' | 'Needs Improvement' | 'Incorrect' }> = ({ evaluation }) => {
-  const baseClasses = "text-xs font-semibold mr-2 px-2.5 py-0.5 rounded-full inline-block";
-  const styles = {
-    'Good': "bg-green-900 text-green-300",
-    'Needs Improvement': "bg-yellow-900 text-yellow-300",
-    'Incorrect': "bg-red-900 text-red-300",
-  };
-  return <span className={`${baseClasses} ${styles[evaluation]}`}>{evaluation}</span>;
-};
-
 const StatusBadge: React.FC<{ type: 'Good' | 'Needs Improvement' | 'Incorrect'; count: number }> = ({ type, count }) => {
     if (count === 0) return null;
     const styles = {
@@ -183,36 +173,34 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
       isCollapsed = false,
       onToggleCollapse,
       groupReferenceTranslations,
-      glossary,
+      globalContext,
   } = props;
   
   const [previewFileIndex, setPreviewFileIndex] = useState(0);
   const [isPreviewVisible, setIsPreviewVisible] = useState(true);
-  const [copied, setCopied] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [localContext, setLocalContext] = useState('');
-  
   const [recentlyApplied, setRecentlyApplied] = useState<Set<string>>(new Set());
 
-  // Self-managed state for when the card has its own controls
-  const [selfManagedAnalysisResult, setSelfManagedAnalysisResult] = useState<AIAnalysisResult | null>(null);
-  const [selfManagedIsLoading, setSelfManagedIsLoading] = useState(false);
-  const [selfManagedError, setSelfManagedError] = useState<string | null>(null);
+  // Internal state for when the card manages its own analysis lifecycle
+  const [internalAnalysisResult, setInternalAnalysisResult] = useState<AIAnalysisResult | null>(null);
+  const [internalIsLoading, setInternalIsLoading] = useState(false);
+  const [internalError, setInternalError] = useState<string | null>(null);
   
-  // Local copy of analysis result when it's passed as a prop, to allow for local modifications (e.g., updating status on apply)
-  const [localAnalysisResult, setLocalAnalysisResult] = useState<AIAnalysisResult | null | undefined>(analysisResultProp);
+  // A local copy of the analysis result to allow for optimistic UI updates (e.g., "Applied" status)
+  const [displayAnalysisResult, setDisplayAnalysisResult] = useState<AIAnalysisResult | null | undefined>(analysisResultProp);
 
   useEffect(() => {
-      setLocalAnalysisResult(analysisResultProp);
+    setDisplayAnalysisResult(analysisResultProp);
   }, [analysisResultProp]);
 
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
   const [generatedPrompt, setGeneratedPrompt] = useState('');
 
-  // Decide which state to use based on whether controls are shown
-  const analysisResult = showAnalysisControls ? selfManagedAnalysisResult : localAnalysisResult;
-  const isLoading = showAnalysisControls ? selfManagedIsLoading : isLoadingProp;
-  const error = showAnalysisControls ? selfManagedError : errorProp;
+  // Determine which state source to use
+  const analysisResult = showAnalysisControls ? internalAnalysisResult : displayAnalysisResult;
+  const isLoading = showAnalysisControls ? internalIsLoading : isLoadingProp;
+  const error = showAnalysisControls ? internalError : errorProp;
 
   const polishFile = useMemo(() => files.find(f => f.name.toLowerCase().includes('pl') || f.name.toLowerCase().includes('polish')), [files]);
   const englishFile = useMemo(() => files.find(f => f.name.toLowerCase().includes('en') || f.name.toLowerCase().includes('english')), [files]);
@@ -224,8 +212,8 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
   }, [files, previewFileIndex]);
 
   useEffect(() => {
-      setSelfManagedAnalysisResult(null);
-      setSelfManagedError(null);
+      setInternalAnalysisResult(null);
+      setInternalError(null);
       setLocalContext(parentContext || '');
       setRecentlyApplied(new Set());
   }, [translationKey, parentContext]);
@@ -233,33 +221,21 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
   const unappliedSuggestions = useMemo(() => {
     if (!analysisResult?.analysis) return [];
     
-    const suggestions: {language: string, suggestion: string}[] = [];
-    analysisResult.analysis.forEach(item => {
-        if (!item.suggestion || !item.suggestion.trim()) return;
+    return analysisResult.analysis.filter(item => {
+        if (!item.suggestion?.trim()) return false;
         const file = files.find(f => f.name === item.language);
-        if (!file) return;
-
+        if (!file) return false;
         const currentValue = getValueByPath(file.data, translationKey);
-        if (currentValue !== item.suggestion) {
-            if (!suggestions.some(s => s.language === item.language)) {
-                suggestions.push({ language: item.language, suggestion: item.suggestion });
-            }
-        }
+        return currentValue !== item.suggestion;
     });
-    
-    return suggestions;
   }, [analysisResult, files, translationKey]);
 
    const statusSummary = useMemo(() => {
     if (!analysisResult?.analysis) return null;
-    const counts: Record<string, number> = {
-        'Good': 0,
-        'Needs Improvement': 0,
-        'Incorrect': 0,
-    };
-    analysisResult.analysis.forEach(item => {
-        counts[item.evaluation] = (counts[item.evaluation] || 0) + 1;
-    });
+    const counts = analysisResult.analysis.reduce((acc, item) => {
+        acc[item.evaluation] = (acc[item.evaluation] || 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
     return counts;
   }, [analysisResult]);
 
@@ -271,9 +247,9 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
   };
   
   const handleSuggestContext = async () => {
-    setSelfManagedIsLoading(true);
-    setSelfManagedError(null);
-    setSelfManagedAnalysisResult(null);
+    setInternalIsLoading(true);
+    setInternalError(null);
+    setInternalAnalysisResult(null);
 
     const allTranslations = files.map(f => ({
         lang: f.name,
@@ -281,24 +257,29 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
     }));
 
     try {
-        const suggestedContext = await generateContextForKey(translationKey, allTranslations);
+        const suggestedContext = await generateContextForKey(
+            translationKey, 
+            allTranslations, 
+            translationHistory, 
+            globalContext || ''
+        );
         setLocalContext(suggestedContext);
     } catch (e: any) {
-        setSelfManagedError(e.message || "An unknown error occurred while suggesting context.");
+        setInternalError(e.message || "An unknown error occurred while suggesting context.");
     } finally {
-        setSelfManagedIsLoading(false);
+        setInternalIsLoading(false);
     }
   };
 
   const handleShowAnalysisPrompt = () => {
     if (!polishFile) return;
-     const polishValue = String(getValueByPath(polishFile.data, translationKey) || '');
+    const polishValue = String(getValueByPath(polishFile.data, translationKey) || '');
     const englishTranslation = englishFile ? { lang: englishFile.name, value: String(getValueByPath(englishFile.data, translationKey) || '') } : null;
     const otherTranslations = files
         .filter(f => f.name !== polishFile.name && f.name !== englishFile?.name)
         .map(f => ({ lang: f.name, value: String(getValueByPath(f.data, translationKey) || ''), }));
     
-    const prompt = buildAnalysisPrompt(translationKey, localContext, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations, glossary);
+    const prompt = buildAnalysisPrompt(translationKey, localContext, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations);
     setGeneratedPrompt(prompt);
     setIsPromptModalOpen(true);
   };
@@ -308,7 +289,12 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
         lang: f.name,
         value: String(getValueByPath(f.data, translationKey) || ''),
     }));
-    const prompt = buildGenerateContextPrompt(translationKey, allTranslations);
+    const prompt = buildGenerateContextPrompt(
+        translationKey, 
+        allTranslations,
+        translationHistory,
+        globalContext || ''
+    );
     setGeneratedPrompt(prompt);
     setIsPromptModalOpen(true);
   }
@@ -317,17 +303,15 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
     if (localContext !== parentContext) {
         onUpdateContext(localContext);
     }
-
-    setSelfManagedIsLoading(true);
-    setSelfManagedError(null);
-    setSelfManagedAnalysisResult(null);
-    setRecentlyApplied(new Set());
-
     if (!polishFile) {
-        setSelfManagedError("A Polish translation file (e.g., 'pl.json') is required as a reference for analysis.");
-        setSelfManagedIsLoading(false);
+        setInternalError("A Polish translation file (e.g., 'pl.json') is required as a reference for analysis.");
         return;
     }
+
+    setInternalIsLoading(true);
+    setInternalError(null);
+    setInternalAnalysisResult(null);
+    setRecentlyApplied(new Set());
 
     const polishValue = String(getValueByPath(polishFile.data, translationKey) || '');
     const englishTranslation = englishFile ? { lang: englishFile.name, value: String(getValueByPath(englishFile.data, translationKey) || '') } : null;
@@ -341,46 +325,18 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
 
     try {
         const result = await analyzeTranslations(
-            translationKey,
-            localContext, 
-            { lang: polishFile.name, value: polishValue }, 
-            englishTranslation,
-            otherTranslations, 
-            translationHistory,
-            groupReferenceTranslations,
-            glossary
+            translationKey, localContext, { lang: polishFile.name, value: polishValue }, 
+            englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations
         );
-        setSelfManagedAnalysisResult(result);
+        setInternalAnalysisResult(result);
     } catch (e: any) {
-        setSelfManagedError(e.message || "An unknown error occurred during analysis.");
+        setInternalError(e.message || "An unknown error occurred during analysis.");
     } finally {
-        setSelfManagedIsLoading(false);
+        setInternalIsLoading(false);
     }
   };
 
   const previewFile = files[previewFileIndex];
-  
-  const handleCopyToClipboard = () => {
-    const tsvContent = files.map(file => {
-        const value = getValueByPath(file.data, translationKey);
-        let valueString: string;
-        
-        if (typeof value === 'object' && value !== null) {
-            valueString = JSON.stringify(value);
-        } else if (value === undefined || value === null) {
-            valueString = "";
-        } else {
-            valueString = String(value);
-        }
-        const sanitizedValue = valueString.replace(/\t|\n|\r/g, ' ');
-        return `${file.name}\t${sanitizedValue}`;
-    }).join('\n');
-
-    navigator.clipboard.writeText(tsvContent).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    });
-  };
 
   const handleCopyKey = () => {
     navigator.clipboard.writeText(translationKey).then(() => {
@@ -389,28 +345,22 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
     });
   };
 
-
   const handleApplySuggestion = (fileName: string, suggestion: string) => {
     onUpdateValue(fileName, translationKey, suggestion);
     setRecentlyApplied(prev => new Set(prev).add(fileName));
 
     const updateAnalysisState = (currentResult: AIAnalysisResult | null | undefined): AIAnalysisResult | null | undefined => {
         if (!currentResult) return currentResult;
-        const newAnalysis = currentResult.analysis.map(item => {
-            if (item.language === fileName) {
-                // When a suggestion is applied, we optimistically update its status to 'Good'
-                // and remove the suggestion text to prevent re-application.
-                return { ...item, evaluation: 'Good' as 'Good', suggestion: undefined };
-            }
-            return item;
-        });
+        const newAnalysis = currentResult.analysis.map(item => 
+            item.language === fileName ? { ...item, evaluation: 'Good' as 'Good', suggestion: undefined } : item
+        );
         return { ...currentResult, analysis: newAnalysis };
     };
 
     if (showAnalysisControls) {
-        setSelfManagedAnalysisResult(updateAnalysisState);
+        setInternalAnalysisResult(updateAnalysisState);
     } else {
-        setLocalAnalysisResult(updateAnalysisState);
+        setDisplayAnalysisResult(updateAnalysisState);
     }
 
     setTimeout(() => {
@@ -425,14 +375,14 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
   const handleApplyAllSuggestions = () => {
     const languagesApplied = new Set<string>();
     unappliedSuggestions.forEach(item => {
-        onUpdateValue(item.language, translationKey, item.suggestion);
-        languagesApplied.add(item.language);
+        if (item.suggestion) {
+            onUpdateValue(item.language, translationKey, item.suggestion);
+            languagesApplied.add(item.language);
+        }
     });
 
     setRecentlyApplied(languagesApplied);
-    setTimeout(() => {
-        setRecentlyApplied(new Set());
-    }, 2000);
+    setTimeout(() => setRecentlyApplied(new Set()), 2000);
   };
 
   const isContextEmpty = !localContext.trim();
@@ -462,9 +412,9 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
                     </div>
                     {statusSummary && (
                         <div className="flex items-center space-x-2">
-                           <StatusBadge type="Incorrect" count={statusSummary['Incorrect']} />
-                           <StatusBadge type="Needs Improvement" count={statusSummary['Needs Improvement']} />
-                           <StatusBadge type="Good" count={statusSummary['Good']} />
+                           <StatusBadge type="Incorrect" count={statusSummary['Incorrect'] || 0} />
+                           <StatusBadge type="Needs Improvement" count={statusSummary['Needs Improvement'] || 0} />
+                           <StatusBadge type="Good" count={statusSummary['Good'] || 0} />
                         </div>
                     )}
                 </div>
@@ -533,17 +483,6 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
                             <span>Apply All</span>
                             </button>
                         )}
-                        <button
-                            onClick={handleCopyToClipboard}
-                            className={`text-xs font-medium py-1 px-3 rounded-md transition-all duration-200 flex items-center space-x-1.5 ${
-                                copied
-                                ? 'bg-green-600 text-white'
-                                : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
-                            }`}
-                            >
-                            {copied ? ( <> <CheckIcon className="w-4 h-4" /> <span>Copied!</span> </> ) 
-                            : ( <> <ClipboardIcon className="w-4 h-4" /> <span>Copy</span> </> )}
-                        </button>
                         {showFilePreview && (
                             <button
                                 onClick={() => setIsPreviewVisible(!isPreviewVisible)}
@@ -573,26 +512,17 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
                             <tbody>
                             {files.map((file, index) => {
                                 const value = getValueByPath(file.data, translationKey);
-                                const polishValue = polishFile ? String(getValueByPath(polishFile.data, translationKey) || '') : '';
                                 const lineNumber = getLineNumber(file.data, translationKey);
-                                const handleSave = (newValue: any) => onUpdateValue(file.name, translationKey, newValue);
                                 const isActive = index === previewFileIndex;
-                                
-                                const rowClasses = [
-                                    'group', showFilePreview ? 'cursor-pointer' : '', 'transition-colors', 'duration-200',
-                                    isActive && showFilePreview ? 'bg-gray-700/50' : 'hover:bg-gray-700/30'
-                                ].join(' ');
-                                
                                 const isPolishReference = file.name === polishFile?.name;
                                 const isEnglishReference = file.name === englishFile?.name;
-                                
                                 const analysis = analysisResult?.analysis.find(a => a.language === file.name);
 
                                 return (
                                     <tr 
                                         key={file.name} 
                                         onClick={() => showFilePreview && setPreviewFileIndex(index)}
-                                        className={rowClasses}
+                                        className={`group transition-colors duration-200 ${showFilePreview ? 'cursor-pointer' : ''} ${isActive && showFilePreview ? 'bg-gray-700/50' : 'hover:bg-gray-700/30'}`}
                                     >
                                     <td className={`p-3 w-32 align-top ${isActive && showFilePreview ? 'border-l-2 border-teal-500' : 'border-l-2 border-transparent'}`}>
                                         <div className="flex flex-col">
@@ -603,7 +533,7 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
                                         </div>
                                     </td>
                                     <td className="p-3 align-top">
-                                        <ValueDisplay value={value} onSave={handleSave} />
+                                        <ValueDisplay value={value} onSave={(newValue) => onUpdateValue(file.name, translationKey, newValue)} />
                                     </td>
                                     <td className="p-3 align-top text-sm">
                                         {isLoading && (
@@ -614,48 +544,16 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
                                         )}
                                         {(isPolishReference || isEnglishReference) && !analysisResult && !isLoading && (
                                             <div className="text-xs text-gray-500 italic">
-                                                {isEnglishReference ? 'Primary Reference (EN)' : 'Source of Truth (PL)'}
+                                                {isPolishReference ? 'Source of Truth (PL)' : 'Primary Reference (EN)'}
                                             </div>
                                         )}
                                         {analysis && (
-                                            <div className="py-3 flex flex-col gap-2 items-start">
-                                                <EvaluationBadge evaluation={analysis.evaluation} />
-                                                <MarkdownRenderer content={analysis.feedback} />
-                                                {analysis.suggestion?.trim() && (() => {
-                                                    const suggestion = analysis.suggestion.trim();
-                                                    const isApplied = value === suggestion;
-                                                    const wasRecentlyApplied = recentlyApplied.has(file.name);
-                                                    const showAppliedState = isApplied || wasRecentlyApplied;
-                                                    
-                                                    return (
-                                                    <div className="p-2 bg-gray-900/50 rounded-md border border-gray-700 w-full">
-                                                        <p className="text-xs text-gray-400 mb-1">Suggestion:</p>
-                                                        <p className="font-mono text-teal-300 text-xs mb-2">"{suggestion}"</p>
-                                                        <div className="flex items-center space-x-2">
-                                                            {showAppliedState ? (
-                                                                <button 
-                                                                    disabled
-                                                                    className="text-xs bg-gray-600 text-gray-300 font-semibold py-1 px-2 rounded-md flex items-center space-x-1 cursor-default"
-                                                                >
-                                                                    <CheckIcon className="w-3 h-3" />
-                                                                    <span>Applied</span>
-                                                                </button>
-                                                            ) : (
-                                                                <button 
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        handleApplySuggestion(file.name, suggestion);
-                                                                    }}
-                                                                    className="text-xs bg-teal-700 hover:bg-teal-600 text-white font-semibold py-1 px-2 rounded-md transition-colors"
-                                                                >
-                                                                    Apply Suggestion
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    );
-                                                })()}
-                                            </div>
+                                            <AnalysisResultDisplay
+                                                analysis={analysis}
+                                                currentValue={value}
+                                                onApplySuggestion={(suggestion) => handleApplySuggestion(file.name, suggestion)}
+                                                recentlyApplied={recentlyApplied.has(file.name)}
+                                            />
                                         )}
                                     </td>
                                     </tr>

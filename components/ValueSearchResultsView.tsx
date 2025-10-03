@@ -1,6 +1,5 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import type { TranslationFile, TranslationHistory, AIAnalysisResult, Glossary } from '../types';
+import type { TranslationFile, TranslationHistory, AIAnalysisResult } from '../types';
 import { TranslationAnalysisCard } from './TranslationAnalysisCard';
 import { getValueByPath } from '../services/translationService';
 import { analyzeTranslations, buildAnalysisPrompt } from '../services/aiService';
@@ -15,11 +14,11 @@ interface ValueSearchResultsViewProps {
   translationHistory: TranslationHistory;
   onUpdateValue: (fileName: string, key: string, newValue: any) => void;
   onUpdateContext: (key: string, newContext: string) => void;
-  glossary: Glossary;
+  globalContext: string;
 }
 
 export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (props) => {
-    const { keys, searchQuery, glossary } = props;
+    const { keys, searchQuery, globalContext } = props;
     const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
     const [analysisData, setAnalysisData] = useState<Record<string, {
         result: AIAnalysisResult | null;
@@ -72,7 +71,6 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
             sampleKey, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
             props.translationHistory,
             undefined, // No group references in this view
-            glossary
         );
         
         setGeneratedPrompt(prompt);
@@ -103,7 +101,6 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
                 key, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
                 props.translationHistory,
                 undefined, // No group references in this view
-                glossary
             )
             .then(result => ({ key, status: 'fulfilled', value: result }))
             .catch(error => ({ key, status: 'rejected', reason: error as Error }));
@@ -202,7 +199,7 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
                             isLoading={isAnalyzingAll}
                             isCollapsed={collapsedKeys.has(key)}
                             onToggleCollapse={handleToggleCollapse}
-                            glossary={glossary}
+                            globalContext={globalContext}
                         />
                     );
                 })}

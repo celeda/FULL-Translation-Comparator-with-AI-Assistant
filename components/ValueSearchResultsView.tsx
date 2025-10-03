@@ -71,6 +71,7 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
             sampleKey, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
             props.translationHistory,
             undefined, // No group references in this view
+            globalContext,
         );
         
         setGeneratedPrompt(prompt);
@@ -101,6 +102,7 @@ export const ValueSearchResultsView: React.FC<ValueSearchResultsViewProps> = (pr
                 key, context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
                 props.translationHistory,
                 undefined, // No group references in this view
+                globalContext
             )
             .then(result => ({ key, status: 'fulfilled', value: result }))
             .catch(error => ({ key, status: 'rejected', reason: error as Error }));

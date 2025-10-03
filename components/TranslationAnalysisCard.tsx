@@ -279,7 +279,10 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
         .filter(f => f.name !== polishFile.name && f.name !== englishFile?.name)
         .map(f => ({ lang: f.name, value: String(getValueByPath(f.data, translationKey) || ''), }));
     
-    const prompt = buildAnalysisPrompt(translationKey, localContext, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations);
+    const prompt = buildAnalysisPrompt(
+        translationKey, localContext, { lang: polishFile.name, value: polishValue }, 
+        englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations, globalContext
+    );
     setGeneratedPrompt(prompt);
     setIsPromptModalOpen(true);
   };
@@ -326,7 +329,7 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
     try {
         const result = await analyzeTranslations(
             translationKey, localContext, { lang: polishFile.name, value: polishValue }, 
-            englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations
+            englishTranslation, otherTranslations, translationHistory, groupReferenceTranslations, globalContext
         );
         setInternalAnalysisResult(result);
     } catch (e: any) {

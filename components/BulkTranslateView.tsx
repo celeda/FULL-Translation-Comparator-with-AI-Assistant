@@ -33,11 +33,10 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
   const [visibleLangs, setVisibleLangs] = useState<string[]>([]);
 
   useEffect(() => {
-    const defaultLangs = new Set<string>();
-    if (polishFile) defaultLangs.add(polishFile.name);
-    if (englishFile) defaultLangs.add(englishFile.name);
-    
-    setVisibleLangs(Array.from(defaultLangs));
+    const defaultLangs: string[] = [];
+    if (polishFile) defaultLangs.push(polishFile.name);
+    if (englishFile) defaultLangs.push(englishFile.name);
+    setVisibleLangs(defaultLangs);
   }, [polishFile, englishFile]);
 
   const availableLangsToAdd = useMemo(() => {

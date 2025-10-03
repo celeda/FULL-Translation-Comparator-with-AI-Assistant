@@ -1,4 +1,3 @@
-
 export interface TranslationFile {
   name: string;
   data: Record<string, any>;
@@ -20,9 +19,9 @@ export interface AIAnalysisResult {
 // Example: { "buttons.submit": { "en": "Submit Application" } }
 export type TranslationHistory = Record<string, Record<string, string>>;
 
-// FIX: Add Glossary type definition.
-// The glossary stores source terms and their translations.
-// Example: { "Application": { "pl": "Aplikacja", "de": "Anwendung" } }
+// FIX: Add Glossary type definition to fix import error.
+// A glossary for consistent terminology across the app.
+// Example: { "Aplikacja": { "en": "Application", "de": "Anwendung" } }
 export type Glossary = Record<string, Record<string, string>>;
 
 export interface TranslationGroup {
@@ -31,10 +30,4 @@ export interface TranslationGroup {
   context: string;
   keys: string[];
   referenceKeys: string[];
-}
-
-// Defines the structure for a single bulk translation suggestion.
-export interface BulkTranslationSuggestion {
-  key: string;
-  suggestions: Record<string, string>;
 }

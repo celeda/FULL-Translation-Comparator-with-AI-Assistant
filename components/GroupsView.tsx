@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import type { TranslationFile, TranslationHistory, TranslationGroup, AIAnalysisResult } from '../types';
 import { getValueByPath } from '../services/translationService';
 import { analyzeTranslations, buildAnalysisPrompt } from '../services/aiService';
-import { SparklesIcon, CollectionIcon, EditIcon, StarIcon, CodeBracketIcon, ChevronDownIcon, ChevronUpIcon, ClipboardIcon, CheckIcon } from './Icons';
+import { SparklesIcon, CollectionIcon, EditIcon, StarIcon, CodeBracketIcon, ChevronDownIcon, ChevronUpIcon, ClipboardIcon, CheckIcon, BoltIcon } from './Icons';
 import { TranslationAnalysisCard } from './TranslationAnalysisCard';
 import { PromptViewerModal } from './PromptViewerModal';
 import { GroupEditorForm } from './GroupEditorForm';
@@ -52,6 +52,48 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
         setCollapsedKeys(new Set());
     }, [selectedGroupId]);
     
+    const unappliedSuggestions = useMemo(() => {
+        const suggestions: { key: string; lang: string; suggestion: string }[] = [];
+        if (!analysisData) return suggestions;
+
+        Object.entries(analysisData).forEach(([key, analysis]) => {
+            if (analysis.result?.analysis) {
+                analysis.result.analysis.forEach(item => {
+                    if (item.suggestion) {
+                        const file = files.find(f => f.name === item.language);
+                        if (file) {
+                            const currentValue = getValueByPath(file.data, key);
+                            if (currentValue !== item.suggestion) {
+                                suggestions.push({ key, lang: item.language, suggestion: item.suggestion });
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        return suggestions;
+    }, [analysisData, files]);
+
+    const handleApplyAllSuggestions = () => {
+        unappliedSuggestions.forEach(({ key, lang, suggestion }) => {
+            props.onUpdateValue(lang, key, suggestion);
+        });
+
+        const newAnalysisData = JSON.parse(JSON.stringify(analysisData));
+        Object.keys(newAnalysisData).forEach(key => {
+            const analysis = newAnalysisData[key];
+            if (analysis.result) {
+                analysis.result.analysis = analysis.result.analysis.map((item: any) => {
+                    if (item.suggestion) {
+                        return { ...item, evaluation: 'Good', suggestion: undefined };
+                    }
+                    return item;
+                });
+            }
+        });
+        setAnalysisData(newAnalysisData);
+    };
+
     const handleSaveGroup = (groupData: Omit<TranslationGroup, 'id'>) => {
         if (groupMode === 'create') {
             const newGroup: TranslationGroup = {
@@ -116,7 +158,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
             
         const prompt = buildAnalysisPrompt(
             sampleKey, group.context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
-            props.translationHistory, referenceTranslations
+            props.translationHistory, referenceTranslations, props.globalContext
         );
 
         setGeneratedPrompt(prompt);
@@ -147,7 +189,7 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
             
             return analyzeTranslations(
                 key, group.context, { lang: polishFile.name, value: polishValue }, englishTranslation, otherTranslations,
-                props.translationHistory, referenceTranslations
+                props.translationHistory, referenceTranslations, props.globalContext
             )
             .then(result => ({ key, status: 'fulfilled' as const, value: result }))
             .catch(error => ({ key, status: 'rejected' as const, reason: error as Error }));
@@ -158,7 +200,8 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
 
         for (const result of results) {
             if (!result) continue;
-            // FIX: Use if/else for type narrowing to fix property access errors.
+            // FIX: The original code was assigning to a property of an undefined object.
+            // This now correctly assigns a new object for each analysis result.
             if (result.status === 'fulfilled') {
                 newAnalysisData[result.key] = {
                     result: result.value,
@@ -250,6 +293,15 @@ export const GroupsView: React.FC<GroupsViewProps> = (props) => {
                         </button>
                     </div>
                     <div className="flex items-end space-x-2">
+                         {unappliedSuggestions.length > 0 && !isAnalyzing && (
+                            <button
+                                onClick={handleApplyAllSuggestions}
+                                className="flex items-center space-x-2 text-sm bg-teal-600 hover:bg-teal-500 text-white font-medium py-2 px-4 rounded-md transition-colors"
+                            >
+                                <BoltIcon className="w-5 h-5" />
+                                <span>Apply All ({unappliedSuggestions.length})</span>
+                            </button>
+                         )}
                          <button
                             onClick={() => handleShowPrompt(selectedGroup)}
                             disabled={isAnalyzing}

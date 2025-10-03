@@ -49,16 +49,16 @@ export const buildAnalysisPrompt = (
         .map(t => `- Language: ${t.lang}, Translation: "${t.value}"`)
         .join('\n');
     
-    let groupReferenceString = "";
+    let referenceString = "";
     if (groupReferenceTranslations && groupReferenceTranslations.length > 0) {
         const referenceEntries = groupReferenceTranslations.map(ref => {
             const plTranslation = ref.translations.find(t => polishFileFinder({name: t.lang}));
             return `- Klucz '${ref.key}' (wartość PL: "${plTranslation?.value || 'N/A'}") jest absolutnym wzorcem dla tego zadania. Terminologia i frazowanie z tego klucza muszą być ściśle stosowane.`;
         }).join('\n');
 
-        groupReferenceString = `
-**Wzorce Kontekstowe Grupy (PRIORYTET WYSOKI):**
-Poniższe klucze i ich wartości zostały oznaczone przez użytkownika jako wzorzec dla tej grupy. Mają one bardzo wysoki priorytet.
+        referenceString = `
+**Wzorce Kontekstowe (PRIORYTET WYSOKI):**
+Poniższe klucze i ich wartości zostały oznaczone przez użytkownika jako wzorzec. Mają one bardzo wysoki priorytet.
 ${referenceEntries}
 `;
     }
@@ -95,13 +95,13 @@ ${globalContext}
 3.  **ZAKAZ INNYCH REFERENCJI:** Pod żadnym pozorem nie używaj żadnego innego języka (np. włoskiego) jako punktu odniesienia. Jest to **błąd krytyczny**.
 
 Obowiązuje następująca hierarchia ważności informacji (od najważniejszej):
-1.  **Wzorce Kontekstowe Grupy**
+1.  **Wzorce Kontekstowe**
 2.  **Historia Zmian**
 3.  **Źródło Prawdy (Polski)**
 4.  **Kontekst Globalny Aplikacji**
 5.  **Kontekst Klucza**
 
-${groupReferenceString}
+${referenceString}
 ${historyContextString}
 ${globalContextString}
 
@@ -214,7 +214,7 @@ Poniżej znajduje się ogólny opis aplikacji, w której używany jest ten tekst
 `;
   }
 
-  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzyjnego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza, jego istniejących wartości oraz dodatkowych informacji, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
+  const prompt = `Jesteś specjalistą od UX i lokalizacji. Twoim zadaniem jest stworzenie krótkiego, ale precyzyz-nego opisu kontekstu dla klucza tłumaczenia w aplikacji. Opis musi być w języku polskim. Na podstawie nazwy klucza, jego istniejących wartości oraz dodatkowych informacji, opisz, gdzie i w jakim celu ten tekst może być używany w interfejsie użytkownika.
 
 Klucz: "${translationKey}"
 

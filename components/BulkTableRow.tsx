@@ -3,6 +3,7 @@ import type { TranslationFile, AnalysisItem } from '../types';
 import { getValueByPath } from '../services/translationService';
 import { EditableTextarea } from './EditableTextarea';
 import { AnalysisResultDisplay } from './AnalysisResultDisplay';
+import { StarIcon } from './Icons';
 
 interface BulkTableRowProps {
   translationKey: string;
@@ -15,6 +16,8 @@ interface BulkTableRowProps {
   onContextChange: (key: string, value: string) => void;
   isLoading: boolean;
   polishLangName: string;
+  isReference: boolean;
+  onToggleReference: () => void;
 }
 
 export const BulkTableRow: React.FC<BulkTableRowProps> = ({
@@ -28,6 +31,8 @@ export const BulkTableRow: React.FC<BulkTableRowProps> = ({
   onContextChange,
   isLoading,
   polishLangName,
+  isReference,
+  onToggleReference,
 }) => {
   return (
     <tr className="hover:bg-gray-800/30">
@@ -41,6 +46,11 @@ export const BulkTableRow: React.FC<BulkTableRowProps> = ({
                 rows={2}
             />
         </td>
+        <td className="p-2 align-top text-center border-b border-gray-700 sticky left-[250px] z-10 bg-gray-800">
+            <button onClick={onToggleReference} className="p-1" title="Mark as a global reference key for AI">
+                <StarIcon className={`w-5 h-5 transition-colors ${isReference ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-500'}`} />
+            </button>
+        </td>
         {visibleLangs.map(lang => {
             const langFile = files.find(f => f.name === lang);
             const currentValue = editedValues[lang]?.[key] ?? String(getValueByPath(langFile?.data, key) ?? '');
@@ -50,7 +60,7 @@ export const BulkTableRow: React.FC<BulkTableRowProps> = ({
                 <td 
                     key={lang} 
                     className={`p-2 align-top break-words border-b border-gray-700 
-                    ${lang === polishLangName ? 'sticky left-[250px] z-10 bg-gray-800' : ''}`}
+                    ${lang === polishLangName ? 'sticky left-[298px] z-10 bg-gray-800' : ''}`}
                 >
                    <EditableTextarea
                         initialValue={currentValue}

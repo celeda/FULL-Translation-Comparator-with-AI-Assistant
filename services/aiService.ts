@@ -310,6 +310,7 @@ export const analyzeKeyForLanguage = async (
     context: string,
     history: TranslationHistory,
     globalContext: string,
+    referenceTranslations?: { key: string; translations: { lang: string; value: string }[] }[],
 ): Promise<AnalysisItem | null> => {
     
     const polishFile = Object.values(allValues).find(v => polishFileFinder({ name: v.lang }));
@@ -329,7 +330,7 @@ export const analyzeKeyForLanguage = async (
         // We are analyzing a target language against the Polish source
         prompt = buildAnalysisPrompt(
             key, context, polishFile, englishFile || null, [{ lang: targetFile.lang, value: targetFile.value }],
-            history, undefined, globalContext
+            history, referenceTranslations, globalContext
         );
     }
 

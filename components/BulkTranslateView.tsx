@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import type { TranslationFile, TranslationHistory, AnalysisItem } from '../types';
 import { getValueByPath } from '../services/translationService';
 import { analyzeKeyForLanguage } from '../services/aiService';
-import { LanguageIcon, SparklesIcon, DownloadIcon, GlobeAltIcon, PlusCircleIcon, CloseIcon } from './Icons';
+import { LanguageIcon, SparklesIcon, DownloadIcon, GlobeAltIcon, PlusCircleIcon, CloseIcon, SearchIcon } from './Icons';
 import { GlobalContextModal } from './GlobalContextModal';
 import { BulkTableRow } from './BulkTableRow';
 
@@ -15,10 +15,12 @@ interface BulkTranslateViewProps {
   globalContext: string;
   onUpdateGlobalContext: (context: string) => void;
   onUpdateContext: (key: string, newContext: string) => void;
+  referenceKeys: string[];
+  onToggleReferenceKey: (key: string) => void;
 }
 
 export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
-  const { allKeys, files, contexts, translationHistory, onSave, globalContext, onUpdateGlobalContext, onUpdateContext } = props;
+  const { allKeys, files, contexts, translationHistory, onSave, globalContext, onUpdateGlobalContext, onUpdateContext, referenceKeys, onToggleReferenceKey } = props;
 
   const [isGlobalContextModalOpen, setIsGlobalContextModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,6 +28,7 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
   
   const [editedValues, setEditedValues] = useState<Record<string, Record<string, string>>>({});
   const [analysisData, setAnalysisData] = useState<Record<string, Record<string, AnalysisItem | null>>>({});
+  const [searchTerm, setSearchTerm] = useState('');
 
   const polishFile = useMemo(() => files.find(f => f.name.toLowerCase() === 'pl' || f.name.toLowerCase() === 'polish'), [files]);
   const englishFile = useMemo(() => files.find(f => f.name.toLowerCase() === 'en' || f.name.toLowerCase() === 'english'), [files]);
@@ -39,6 +42,26 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
     setVisibleLangs(defaultLangs);
   }, [polishFile, englishFile]);
 
+  const filteredKeys = useMemo(() => {
+    if (!searchTerm) return allKeys;
+    
+    const lowercasedQuery = searchTerm.toLowerCase();
+    
+    return allKeys.filter(key => {
+        const keyMatch = key.toLowerCase().includes(lowercasedQuery);
+        if (keyMatch) return true;
+
+        if (polishFile) {
+            const value = getValueByPath(polishFile.data, key);
+            if (typeof value === 'string' && value.toLowerCase().includes(lowercasedQuery)) {
+                return true;
+            }
+        }
+        
+        return false;
+    });
+  }, [allKeys, searchTerm, polishFile]);
+
   const availableLangsToAdd = useMemo(() => {
     return files.map(f => f.name).filter(name => !visibleLangs.includes(name)).sort();
   }, [files, visibleLangs]);
@@ -48,9 +71,14 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
     setError(null);
     setAnalysisData({});
 
-    const keysToAnalyze = allKeys;
+    const keysToAnalyze = filteredKeys;
     const langsToAnalyze = visibleLangs;
     
+    const referenceTranslations = referenceKeys.map(refKey => ({
+        key: refKey,
+        translations: files.map(f => ({ lang: f.name, value: String(getValueByPath(f.data, refKey) || '') }))
+    }));
+
     const allValuesByKey: Record<string, Record<string, { lang: string, value: string }>> = {};
     keysToAnalyze.forEach(key => {
         allValuesByKey[key] = {};
@@ -73,7 +101,7 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
     // Process tasks concurrently
     const results = await Promise.all(tasks.map(async ({ key, lang }) => {
         const context = String(getValueByPath(contexts, key) ?? '');
-        const analysis = await analyzeKeyForLanguage(key, lang, allValuesByKey[key], context, translationHistory, globalContext);
+        const analysis = await analyzeKeyForLanguage(key, lang, allValuesByKey[key], context, translationHistory, globalContext, referenceTranslations);
         return { key, lang, analysis };
     }));
 
@@ -123,6 +151,18 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
                 <LanguageIcon className="w-6 h-6 text-teal-400" />
                 <span>Bulk Translation Editor</span>
             </h2>
+            <div className="relative">
+                <input
+                    type="text"
+                    placeholder="Search keys or Polish values..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-600 rounded-md py-2 pl-10 pr-4 text-gray-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition"
+                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <SearchIcon className="h-5 w-5 text-gray-400" />
+                </div>
+            </div>
             <div className="flex items-end justify-between gap-4">
                 <div className="flex items-end gap-2">
                     <button onClick={() => setIsGlobalContextModalOpen(true)} className="flex items-center space-x-2 text-sm bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-3 rounded-md">
@@ -169,11 +209,12 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
                 <thead className="sticky top-0 bg-gray-800/90 backdrop-blur-sm z-10">
                     <tr>
                         <th className="p-2 w-[250px] min-w-[250px] font-semibold sticky left-0 z-20 bg-gray-800/90 border-b border-gray-700">Key & Context</th>
+                        <th className="p-2 w-12 font-semibold text-center sticky left-[250px] z-20 bg-gray-800/90 border-b border-gray-700">Ref</th>
                         {visibleLangs.map(lang => (
                            <th 
                             key={lang}
                             className={`p-2 w-[350px] min-w-[350px] font-semibold border-b border-gray-700 
-                            ${lang === polishFile?.name ? 'sticky left-[250px] z-20 bg-gray-800/90' : ''}`}
+                            ${lang === polishFile?.name ? 'sticky left-[298px] z-20 bg-gray-800/90' : ''}`}
                            >
                             <div className="flex items-center justify-between">
                                 <span>{lang} {lang === polishFile?.name ? '(Source)' : lang === englishFile?.name ? '(Reference)' : ''}</span>
@@ -192,7 +233,7 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700/50">
-                    {allKeys.map(key => (
+                    {filteredKeys.map(key => (
                       <BulkTableRow
                         key={key}
                         translationKey={key}
@@ -205,6 +246,8 @@ export const BulkTranslateView: React.FC<BulkTranslateViewProps> = (props) => {
                         onContextChange={onUpdateContext}
                         isLoading={isLoading}
                         polishLangName={polishFile?.name || 'pl'}
+                        isReference={referenceKeys.includes(key)}
+                        onToggleReference={() => onToggleReferenceKey(key)}
                       />
                     ))}
                 </tbody>

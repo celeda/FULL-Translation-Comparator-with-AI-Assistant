@@ -178,7 +178,8 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
   
   const [previewFileIndex, setPreviewFileIndex] = useState(0);
   const [isPreviewVisible, setIsPreviewVisible] = useState(true);
-  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedKeyName, setCopiedKeyName] = useState(false);
+  const [copiedKeyValues, setCopiedKeyValues] = useState(false);
   const [localContext, setLocalContext] = useState('');
   const [recentlyApplied, setRecentlyApplied] = useState<Set<string>>(new Set());
 
@@ -341,10 +342,24 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
 
   const previewFile = files[previewFileIndex];
 
-  const handleCopyKey = () => {
+  const handleCopyKeyName = () => {
     navigator.clipboard.writeText(translationKey).then(() => {
-        setCopiedKey(true);
-        setTimeout(() => setCopiedKey(false), 2000);
+        setCopiedKeyName(true);
+        setTimeout(() => setCopiedKeyName(false), 2000);
+    });
+  };
+
+  const handleCopyKeyValues = () => {
+    const valuesObject = files.reduce((acc, file) => {
+        acc[file.name] = getValueByPath(file.data, translationKey);
+        return acc;
+    }, {} as Record<string, any>);
+
+    const valuesText = JSON.stringify(valuesObject, null, 2);
+
+    navigator.clipboard.writeText(valuesText).then(() => {
+        setCopiedKeyValues(true);
+        setTimeout(() => setCopiedKeyValues(false), 2000);
     });
   };
 
@@ -409,8 +424,11 @@ export const TranslationAnalysisCard: React.FC<TranslationAnalysisCardProps> = (
                            </button>
                         )}
                         <p className="text-lg text-teal-400 font-mono break-all">{translationKey}</p>
-                         <button onClick={handleCopyKey} title="Copy key" className="ml-2 p-1 rounded-md hover:bg-gray-700">
-                            {copiedKey ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4 text-gray-400 hover:text-white" />}
+                         <button onClick={handleCopyKeyName} title="Copy key" className="ml-2 p-1 rounded-md hover:bg-gray-700">
+                            {copiedKeyName ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4 text-gray-400 hover:text-white" />}
+                        </button>
+                        <button onClick={handleCopyKeyValues} title="Copy all values as JSON" className="ml-1 p-1 rounded-md hover:bg-gray-700">
+                            {copiedKeyValues ? <CheckIcon className="w-4 h-4 text-green-400" /> : <CodeBracketIcon className="w-4 h-4 text-gray-400 hover:text-white" />}
                         </button>
                     </div>
                     {statusSummary && (

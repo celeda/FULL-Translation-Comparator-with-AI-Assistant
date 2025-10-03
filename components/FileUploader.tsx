@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback } from 'react';
 import type { TranslationFile, TranslationHistory, TranslationGroup } from '../types';
 import { UploadIcon } from './Icons';
@@ -13,6 +12,7 @@ interface FileUploaderProps {
       history: TranslationHistory, 
       groups: TranslationGroup[],
       globalContext: string,
+      referenceKeys: string[],
   }) => void;
   compact?: boolean;
 }
@@ -25,7 +25,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
     setError(null);
     let filesToProcess: {name: string, text: () => Promise<string>}[] = Array.from(fileList).map(f => ({ name: f.name, text: () => f.text() }));
 
-    const defaultResult = { translationFiles: [], contexts: {}, history: {}, groups: [], globalContext: '' };
+    const defaultResult = { translationFiles: [], contexts: {}, history: {}, groups: [], globalContext: '', referenceKeys: [] };
 
     if (filesToProcess.length === 1 && (filesToProcess[0].name.endsWith('.zip') || fileList[0].type === 'application/zip')) {
       try {
@@ -55,6 +55,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
     let history: TranslationHistory = {};
     let groups: TranslationGroup[] = [];
     let globalContext: string = '';
+    let referenceKeys: string[] = [];
 
     for (const file of filesToProcess) {
       try {
@@ -68,6 +69,8 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
           groups = JSON.parse(text);
         } else if (file.name === 'global_context.txt') {
           globalContext = text;
+        } else if (file.name === 'reference_keys.json') {
+            referenceKeys = JSON.parse(text);
         } else if (file.name.endsWith('.json')) {
           const fileName = file.name.replace('.json', '');
           translationFiles.push({ name: fileName, data: JSON.parse(text) });
@@ -87,7 +90,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
         return;
     }
 
-    onFilesUploaded({ translationFiles, contexts, history, groups, globalContext });
+    onFilesUploaded({ translationFiles, contexts, history, groups, globalContext, referenceKeys });
   }, [onFilesUploaded]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -157,7 +160,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFilesUploaded, com
             <span className="font-semibold text-teal-400">Click to upload</span> or drag and drop
           </p>
           <p className="text-xs text-gray-500">JSON files or a single ZIP file</p>
-          <p className="text-xs text-gray-500 mt-1">Optional: `context.json`, `history.json`, `groups.json`, `global_context.txt`</p>
+          <p className="text-xs text-gray-500 mt-1">Optional: `context.json`, `history.json`, `groups.json`, `reference_keys.json`, `global_context.txt`</p>
         </div>
         <input 
           id="file-upload" 

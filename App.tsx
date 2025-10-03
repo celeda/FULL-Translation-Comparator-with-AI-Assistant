@@ -21,6 +21,7 @@ interface ProjectData {
     translationHistory: TranslationHistory;
     translationGroups: TranslationGroup[];
     globalContext: string;
+    referenceKeys: string[];
     lastUpdated: string;
 }
 
@@ -162,7 +163,8 @@ const App: React.FC = () => {
       contexts: Record<string, string>, 
       history: TranslationHistory, 
       groups: TranslationGroup[],
-      globalContext: string 
+      globalContext: string,
+      referenceKeys: string[],
   }) => {
     const newProjectData: ProjectData = {
         translationFiles: uploadResult.translationFiles,
@@ -170,6 +172,7 @@ const App: React.FC = () => {
         translationHistory: uploadResult.history,
         translationGroups: uploadResult.groups,
         globalContext: uploadResult.globalContext,
+        referenceKeys: uploadResult.referenceKeys || [],
         lastUpdated: new Date().toISOString()
     };
     setProjectData(newProjectData);
@@ -199,7 +202,10 @@ const App: React.FC = () => {
   
   const handleContinueSession = () => {
     if (initialDataFromStorage) {
-        setProjectData(initialDataFromStorage);
+        setProjectData({
+            ...initialDataFromStorage,
+            referenceKeys: initialDataFromStorage.referenceKeys || [], // Ensure referenceKeys exists
+        });
         // Recalculate allKeys and set initial selected key
         const allKeysSet = new Set<string>();
         initialDataFromStorage.translationFiles.forEach(file => {
@@ -280,6 +286,18 @@ const App: React.FC = () => {
     });
   };
 
+  const handleToggleReferenceKey = (key: string) => {
+    updateProjectData(prev => {
+        const newReferenceKeys = new Set(prev.referenceKeys);
+        if (newReferenceKeys.has(key)) {
+            newReferenceKeys.delete(key);
+        } else {
+            newReferenceKeys.add(key);
+        }
+        return { referenceKeys: Array.from(newReferenceKeys).sort() };
+    });
+  };
+
   const handleDownloadFiles = async () => {
     if (!projectData) return;
 
@@ -295,6 +313,7 @@ const App: React.FC = () => {
       if (Object.keys(projectData.translationHistory).length > 0) zip.file('history.json', JSON.stringify(projectData.translationHistory, null, 2));
       if (projectData.translationGroups.length > 0) zip.file('groups.json', JSON.stringify(projectData.translationGroups, null, 2));
       if (projectData.globalContext) zip.file('global_context.txt', projectData.globalContext);
+      if (projectData.referenceKeys.length > 0) zip.file('reference_keys.json', JSON.stringify(projectData.referenceKeys, null, 2));
 
       const blob = await zip.generateAsync({ type: 'blob' });
       saveAs(blob, 'translations.zip');
@@ -352,6 +371,8 @@ const App: React.FC = () => {
                 globalContext={pData.globalContext}
                 onUpdateGlobalContext={(newContext) => updateProjectData(() => ({ globalContext: newContext }))}
                 onUpdateContext={handleUpdateContext}
+                referenceKeys={pData.referenceKeys}
+                onToggleReferenceKey={handleToggleReferenceKey}
             />
         );
       default:
@@ -395,7 +416,7 @@ const App: React.FC = () => {
                         </div>
                     ) : (
                         <div>
-                           <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, and `groups.json`.</p>
+                           <p className="text-gray-400 mb-8">Start by uploading your JSON translation files. You can also include `context.json`, `history.json`, `groups.json`, and `reference_keys.json`.</p>
                            <FileUploader onFilesUploaded={handleFilesUpload} />
                         </div>
                     )}
